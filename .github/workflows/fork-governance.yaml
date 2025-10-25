@@ -254,9 +254,83 @@ jobs:
               recursive: 'true'
             });
 
-            // Filter out files to delete
-            const newTree = currentTree.data.tree
-              .filter(item => !filesToDelete.includes(item.path))
+            const updatedFiles = [];
+
+            // Update README.md
+            try {
+              const readmeContent = await github.rest.repos.getContent({
+                owner: forkOwner,
+                repo: forkRepo,
+                path: 'README.md'
+              });
+
+              const currentContent = Buffer.from(readmeContent.data.content, 'base64').toString();
+
+              const updatedContent = currentContent
+                .replace(/Template repo to spin off application on AWS/g, `AWS application repository for ${forkRepo}`)
+                .replace(/aws-app-template/g, forkRepo)
+                .replace(/cyan-prod\/aws-app-template/g, `${forkOwner}/${forkRepo}`)
+                .replace(/## Repository Rulesets[\\s\\S]*?(?=## Pull Request Template)/g, '');
+
+              const readmeBlob = await github.rest.git.createBlob({
+                owner: forkOwner,
+                repo: forkRepo,
+                content: updatedContent,
+                encoding: 'utf-8'
+              });
+
+              updatedFiles.push({
+                path: 'README.md',
+                mode: '100644',
+                type: 'blob',
+                sha: readmeBlob.data.sha
+              });
+
+              console.log(`✓ Prepared updated README.md for ${forkRepo}`);
+            } catch (error) {
+              console.error('Failed to prepare README.md update:', error.message);
+            }
+
+            // Update .github/workflows/README.md
+            try {
+              const workflowsReadmeContent = await github.rest.repos.getContent({
+                owner: forkOwner,
+                repo: forkRepo,
+                path: '.github/workflows/README.md'
+              });
+
+              const currentWorkflowsContent = Buffer.from(workflowsReadmeContent.data.content, 'base64').toString();
+
+              const updatedWorkflowsContent = currentWorkflowsContent
+                .replace(/aws-app-template/g, forkRepo)
+                .replace(/cyan-prod\/aws-app-template/g, `${forkOwner}/${forkRepo}`)
+                // Remove sections about deleted workflows
+                .replace(/### `fork-governance\\.yaml`[\\s\\S]*?---\\n\\n/, '')
+                .replace(/## What Fork Governance Does[\\s\\S]*?---\\n\\n/, '')
+                .replace(/## Setup Required: GH_PAT Secret[\\s\\S]*?---\\n\\n/, '');
+
+              const workflowsBlob = await github.rest.git.createBlob({
+                owner: forkOwner,
+                repo: forkRepo,
+                content: updatedWorkflowsContent,
+                encoding: 'utf-8'
+              });
+
+              updatedFiles.push({
+                path: '.github/workflows/README.md',
+                mode: '100644',
+                type: 'blob',
+                sha: workflowsBlob.data.sha
+              });
+
+              console.log(`✓ Prepared updated .github/workflows/README.md for ${forkRepo}`);
+            } catch (error) {
+              console.error('Failed to prepare .github/workflows/README.md update:', error.message);
+            }
+
+            // Filter out files to delete and files to update
+            const newTreeItems = currentTree.data.tree
+              .filter(item => !filesToDelete.includes(item.path) &amp;&amp; !updatedFiles.some(u => u.path === item.path))
               .map(item => ({
                 path: item.path,
                 mode: item.mode,
@@ -264,20 +338,23 @@ jobs:
                 sha: item.sha
               }));
 
-            console.log(`Original files: ${currentTree.data.tree.length}, After cleanup: ${newTree.length}`);
+            // Add updated files to the tree
+            newTreeItems.push(...updatedFiles);
 
-            // Create new tree without the deleted files
+            console.log(`Original files: ${currentTree.data.tree.length}, After cleanup and updates: ${newTreeItems.length}`);
+
+            // Create new tree
             const tree = await github.rest.git.createTree({
               owner: forkOwner,
               repo: forkRepo,
-              tree: newTree
+              tree: newTreeItems
             });
 
             // Create a single clean commit (orphan - no history)
             const cleanCommit = await github.rest.git.createCommit({
               owner: forkOwner,
               repo: forkRepo,
-              message: 'Initial commit - forked from aws-app-template',
+              message: 'Initial commit - forked from aws-app-template with customizations',
               tree: tree.data.sha,
               parents: [] // No parents = orphan commit (clean history)
             });
@@ -291,74 +368,8 @@ jobs:
               force: true
             });
 
-            console.log(`✓ Cleaned up ${filesToDelete.length} template files from main`);
             console.log(`✓ Created clean commit history with single commit: ${cleanCommit.data.sha}`);
-            console.log(`✓ Repository now has clean history with only essential files`);
-
-            // Update README.md content to reflect the new repository
-            try {
-              const readmeContent = await github.rest.repos.getContent({
-                owner: forkOwner,
-                repo: forkRepo,
-                path: 'README.md'
-              });
-
-              const currentContent = Buffer.from(readmeContent.data.content, 'base64').toString();
-
-              // Update the README content
-              const updatedContent = currentContent
-                .replace(/Template repo to spin off application on AWS/g, `AWS application repository for ${forkRepo}`)
-                .replace(/aws-app-template/g, forkRepo)
-                .replace(/cyan-prod\/aws-app-template/g, `${forkOwner}/${forkRepo}`);
-
-              // Create updated README.md
-              await github.rest.repos.createOrUpdateFileContents({
-                owner: forkOwner,
-                repo: forkRepo,
-                path: 'README.md',
-                message: 'docs: update README.md for new repository',
-                content: Buffer.from(updatedContent).toString('base64'),
-                sha: readmeContent.data.sha
-              });
-
-              console.log(`✓ Updated README.md content for ${forkRepo}`);
-            } catch (error) {
-              console.error('Failed to update README.md:', error.message);
-            }
-
-            // Update .github/workflows/README.md content to reflect the new repository
-            try {
-              const workflowsReadmeContent = await github.rest.repos.getContent({
-                owner: forkOwner,
-                repo: forkRepo,
-                path: '.github/workflows/README.md'
-              });
-
-              const currentWorkflowsContent = Buffer.from(workflowsReadmeContent.data.content, 'base64').toString();
-
-              // Update the workflows README content
-              const updatedWorkflowsContent = currentWorkflowsContent
-                .replace(/aws-app-template/g, forkRepo)
-                .replace(/cyan-prod\/aws-app-template/g, `${forkOwner}/${forkRepo}`)
-                // Remove sections about deleted workflows
-                .replace(/### `fork-governance\.yaml`\nTriggers on fork - automatically sets up governance on forked repos\.\n\n### `apply-rulesets\.yaml`\nTriggers on push to `main` with `\/rulesets\/\*\*` changes - auto-applies ruleset updates\.\n\n---\n\n/, '')
-                .replace(/## What Fork Governance Does\n\nWhen someone forks:\n1\. Validates repo name \(`aws-\*` lowercase kebab-case\)\n2\. Applies all 5 rulesets\n3\. Creates `dev` branch, sets as default\n4\. Creates environments: `dev`, `staging`, `prod`\n5\. Enables Dependabot, vulnerability alerts, auto-delete branches\n6\. Checks README\/CONTRIBUTING updated\n7\. Creates setup issue with instructions\n\n---\n\n/, '')
-                .replace(/## Setup Required: GH_PAT Secret\n\nCreate Personal Access Token with scopes:\n- `repo` - Full repository access\n- `administration:write` - Manage rulesets\n\n\*\*Steps:\*\*\n1\. GitHub Settings → Developer settings → Personal access tokens → Tokens \(classic\)\n2\. Generate new token \(classic\)\n3\. Select scopes: `repo`, `admin:repo_hook`\n4\. Copy token\n5\. Add to template repo: Settings → Secrets → Actions → New secret\n6\. Name: `GH_PAT`, Value: your token\n\n---\n\n/, '');
-
-              // Create updated .github/workflows/README.md
-              await github.rest.repos.createOrUpdateFileContents({
-                owner: forkOwner,
-                repo: forkRepo,
-                path: '.github/workflows/README.md',
-                message: 'docs: update .github/workflows/README.md for new repository',
-                content: Buffer.from(updatedWorkflowsContent).toString('base64'),
-                sha: workflowsReadmeContent.data.sha
-              });
-
-              console.log(`✓ Updated .github/workflows/README.md content for ${forkRepo}`);
-            } catch (error) {
-              console.error('Failed to update .github/workflows/README.md:', error.message);
-            }
+            console.log(`✓ Repository now has clean history with only essential files and updated READMEs`);
 
       - name: Apply repository rulesets
         uses: actions/github-script@v8
