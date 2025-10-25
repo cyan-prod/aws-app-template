@@ -63,10 +63,10 @@ jobs:
               // 3. Delete dev branch if it exists
               console.log('🗑️ Deleting dev branch...');
               try {
-                await github.rest.repos.deleteBranch({
+                await github.rest.git.deleteRef({
                   owner: forkOwner,
                   repo: forkRepo,
-                  branch: 'dev'
+                  ref: 'heads/dev'
                 });
                 console.log('✓ Deleted dev branch');
               } catch (error) {
