@@ -156,25 +156,47 @@ jobs:
               tree: newTree
             });
 
-            // Create commit
-            const commit = await github.rest.git.createCommit({
+            // Get the first commit to reset to (clean history)
+            const firstCommit = await github.rest.git.getCommit({
               owner: forkOwner,
               repo: forkRepo,
-              message: 'chore: remove template governance files (rulesets already applied)',
-              tree: tree.data.sha,
-              parents: [currentCommitSha]
+              commit_sha: currentCommitSha
             });
 
-            // Update main branch reference
+            // Walk back to find the first commit
+            let firstCommitSha = currentCommitSha;
+            let commit = firstCommit.data;
+            while (commit.parents && commit.parents.length > 0) {
+              firstCommitSha = commit.parents[0].sha;
+              commit = await github.rest.git.getCommit({
+                owner: forkOwner,
+                repo: forkRepo,
+                commit_sha: firstCommitSha
+              });
+            }
+
+            console.log(`Found first commit: ${firstCommitSha}`);
+
+            // Create a single clean commit with all the cleaned files
+            const cleanCommit = await github.rest.git.createCommit({
+              owner: forkOwner,
+              repo: forkRepo,
+              message: 'Initial commit - forked from aws-app-template',
+              tree: tree.data.sha,
+              parents: [] // No parents = orphan commit (clean history)
+            });
+
+            // Update main branch reference to point to the clean commit
             await github.rest.git.updateRef({
               owner: forkOwner,
               repo: forkRepo,
               ref: 'heads/main',
-              sha: commit.data.sha
+              sha: cleanCommit.data.sha
             });
 
             console.log(`✓ Cleaned up ${filesToDelete.length} template files from main`);
-            console.log(`✓ Created cleanup commit: ${commit.data.sha}`);
+            console.log(`✓ Created clean commit history with single commit: ${cleanCommit.data.sha}`);
+            console.log(`✓ Repository now has clean history with only essential files`);
 
       - name: Apply repository rulesets
         uses: actions/github-script@v8
