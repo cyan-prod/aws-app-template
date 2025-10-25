@@ -14,11 +14,6 @@ on:
         required: false
         default: true
         type: boolean
-      template_files_to_delete:
-        description: 'Comma-separated list of template files to delete (e.g., "rulesets/main.json,.github/workflows/fork-governance.yaml")'
-        required: false
-        default: 'rulesets/main.json,rulesets/dev.json,rulesets/tag-protection.json,rulesets/branch-naming.json,rulesets/commit-message.json,rulesets/README.md,.github/workflows/fork-governance.yaml,.github/workflows/apply-rulesets.yaml'
-        type: string
 
 jobs:
   setup-forked-repo:
@@ -223,8 +218,17 @@ jobs:
             console.log('Cleaning up template-specific files from main branch...');
 
             // Files to delete (no longer needed in forked repos)
-            // This list can be easily modified via the template_files_to_delete input parameter
-            const filesToDelete = '${{ github.event.inputs.template_files_to_delete }}'.split(',');
+            // Edit this list directly to add/remove files
+            const filesToDelete = [
+              'rulesets/main.json',
+              'rulesets/dev.json',
+              'rulesets/tag-protection.json',
+              'rulesets/branch-naming.json',
+              'rulesets/commit-message.json',
+              'rulesets/README.md',
+              '.github/workflows/fork-governance.yaml',
+              '.github/workflows/apply-rulesets.yaml'
+            ];
 
             console.log(`Files to remove: ${filesToDelete.join(', ')}`);
 
