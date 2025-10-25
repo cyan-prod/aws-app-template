@@ -9,6 +9,11 @@ on:
         required: false
         default: 'aws-app-Test'
         type: string
+      nuke_repo:
+        description: 'Nuke repository before applying governance (removes all files, sets default to main, deletes dev branch)'
+        required: false
+        default: true
+        type: boolean
 
 jobs:
   setup-forked-repo:
@@ -19,6 +24,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Nuke target repository completely
+        if: ${{ github.event.inputs.nuke_repo == 'true' || github.event_name == 'fork' }}
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GH_PAT_CLASSIC }}
@@ -111,6 +117,40 @@ jobs:
 
             } catch (error) {
               console.log('Repository nuking failed:', error.message);
+              throw error;
+            }
+
+      - name: Clean up rulesets only (skip nuking)
+        if: ${{ github.event.inputs.nuke_repo == 'false' && github.event_name == 'workflow_dispatch' }}
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GH_PAT_CLASSIC }}
+          script: |
+            const forkOwner = '${{ github.event.inputs.target_repo && 'cyan-prod' || github.event.forkee.owner.login }}';
+            const forkRepo = '${{ github.event.inputs.target_repo || github.event.forkee.name }}';
+
+            console.log(`🧹 Cleaning up rulesets for ${forkOwner}/${forkRepo} (nuking disabled)...`);
+
+            try {
+              // Delete all existing rulesets
+              const rulesets = await github.rest.repos.getRepoRulesets({
+                owner: forkOwner,
+                repo: forkRepo
+              });
+
+              for (const ruleset of rulesets.data) {
+                await github.rest.repos.deleteRepoRuleset({
+                  owner: forkOwner,
+                  repo: forkRepo,
+                  ruleset_id: ruleset.id
+                });
+                console.log(`✓ Deleted ruleset: ${ruleset.name}`);
+              }
+
+              console.log(`✓ Cleaned up rulesets for ${forkOwner}/${forkRepo}`);
+
+            } catch (error) {
+              console.log('Ruleset cleanup failed:', error.message);
               throw error;
             }
 
