@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  administration: write
 
 jobs:
   apply-rulesets:
