@@ -23,7 +23,7 @@ jobs:
         with:
           github-token: ${{ secrets.GH_PAT_CLASSIC }}
           script: |
-            const forkOwner = '${{ github.event.inputs.target_repo && "cyan-prod" || context.payload.forkee.owner.login }}';
+            const forkOwner = '${{ github.event.inputs.target_repo && ''cyan-prod'' || context.payload.forkee.owner.login }}';
             const forkRepo = '${{ github.event.inputs.target_repo || context.payload.forkee.name }}';
 
             console.log(`Resetting ${forkOwner}/${forkRepo} to clean state...`);
