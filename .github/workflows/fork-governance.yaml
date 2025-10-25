@@ -96,7 +96,7 @@ jobs:
       - name: Apply repository rulesets
         uses: actions/github-script@v8
         with:
-          github-token: ${{ secrets.GH_PAT }}
+          github-token: ${{ secrets.GH_PAT_CLASSIC }}
           script: |
             const fs = require('fs');
             const path = require('path');
@@ -144,7 +144,7 @@ jobs:
       - name: Clean up governance files on main branch
         uses: actions/github-script@v8
         with:
-          github-token: ${{ secrets.GH_PAT }}
+          github-token: ${{ secrets.GH_PAT_CLASSIC }}
           script: |
             const forkOwner = '${{ steps.repo-info.outputs.owner }}';
             const forkRepo = '${{ steps.repo-info.outputs.repo }}';
@@ -227,7 +227,7 @@ jobs:
       - name: Create dev branch from cleaned main and set as default
         uses: actions/github-script@v8
         with:
-          github-token: ${{ secrets.GH_PAT }}
+          github-token: ${{ secrets.GH_PAT_CLASSIC }}
           script: |
             const forkOwner = '${{ steps.repo-info.outputs.owner }}';
             const forkRepo = '${{ steps.repo-info.outputs.repo }}';
@@ -281,7 +281,7 @@ jobs:
       - name: Create environments
         uses: actions/github-script@v8
         with:
-          github-token: ${{ secrets.GH_PAT }}
+          github-token: ${{ secrets.GH_PAT_CLASSIC }}
           script: |
             const forkOwner = '${{ steps.repo-info.outputs.owner }}';
             const forkRepo = '${{ steps.repo-info.outputs.repo }}';
@@ -310,7 +310,7 @@ jobs:
       - name: Enable security features
         uses: actions/github-script@v8
         with:
-          github-token: ${{ secrets.GH_PAT }}
+          github-token: ${{ secrets.GH_PAT_CLASSIC }}
           script: |
             const forkOwner = '${{ steps.repo-info.outputs.owner }}';
             const forkRepo = '${{ steps.repo-info.outputs.repo }}';
@@ -363,7 +363,7 @@ jobs:
         uses: actions/github-script@v8
         continue-on-error: true
         with:
-          github-token: ${{ secrets.GH_PAT }}
+          github-token: ${{ secrets.GH_PAT_CLASSIC }}
           script: |
             const forkOwner = '${{ steps.repo-info.outputs.owner }}';
             const forkRepo = '${{ steps.repo-info.outputs.repo }}';
@@ -407,7 +407,7 @@ jobs:
       - name: Create setup notification issue
         uses: actions/github-script@v8
         with:
-          github-token: ${{ secrets.GH_PAT }}
+          github-token: ${{ secrets.GH_PAT_CLASSIC }}
           script: |
             const forkOwner = '${{ steps.repo-info.outputs.owner }}';
             const forkRepo = '${{ steps.repo-info.outputs.repo }}';
