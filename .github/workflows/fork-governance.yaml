@@ -18,7 +18,7 @@ jobs:
       - name: Checkout template repository
         uses: actions/checkout@v5
 
-      - name: Reset repository to clean state
+      - name: Nuke target repository completely
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GH_PAT_CLASSIC }}
@@ -26,10 +26,11 @@ jobs:
             const forkOwner = '${{ github.event.inputs.target_repo && 'cyan-prod' || github.event.forkee.owner.login }}';
             const forkRepo = '${{ github.event.inputs.target_repo || github.event.forkee.name }}';
 
-            console.log(`Resetting ${forkOwner}/${forkRepo} to clean state...`);
+            console.log(`🔥 NUKING ${forkOwner}/${forkRepo} completely...`);
 
             try {
-              // Delete all existing rulesets
+              // 1. Delete all existing rulesets
+              console.log('🗑️ Deleting all rulesets...');
               const rulesets = await github.rest.repos.getRepoRulesets({
                 owner: forkOwner,
                 repo: forkRepo
@@ -44,31 +45,73 @@ jobs:
                 console.log(`✓ Deleted ruleset: ${ruleset.name}`);
               }
 
-              // Reset to original template state (get the original commit from template)
-              const templateRepo = await github.rest.repos.get({
-                owner: 'cyan-prod',
-                repo: 'aws-app-template'
+              // 2. Delete dev branch if it exists
+              console.log('🗑️ Deleting dev branch...');
+              try {
+                await github.rest.repos.deleteBranch({
+                  owner: forkOwner,
+                  repo: forkRepo,
+                  branch: 'dev'
+                });
+                console.log('✓ Deleted dev branch');
+              } catch (error) {
+                if (error.status === 422) {
+                  console.log('Dev branch does not exist or is protected');
+                } else {
+                  console.log('Failed to delete dev branch:', error.message);
+                }
+              }
+
+              // 3. Set default branch back to main
+              console.log('🔄 Setting default branch to main...');
+              await github.rest.repos.update({
+                owner: forkOwner,
+                repo: forkRepo,
+                default_branch: 'main'
+              });
+              console.log('✓ Set default branch to main');
+
+              // 4. Delete all files on main branch (create empty commit)
+              console.log('🗑️ Removing all files from main branch...');
+
+              // Create an empty tree
+              const emptyTree = await github.rest.git.createTree({
+                owner: forkOwner,
+                repo: forkRepo,
+                tree: []
               });
 
-              // Get the main branch commit from template
-              const templateMain = await github.rest.repos.getBranch({
-                owner: 'cyan-prod',
-                repo: 'aws-app-template',
+              // Get current main branch commit
+              const mainBranch = await github.rest.repos.getBranch({
+                owner: forkOwner,
+                repo: forkRepo,
                 branch: 'main'
               });
 
-              // Force update the forked repo to match template
+              // Create empty commit
+              const emptyCommit = await github.rest.git.createCommit({
+                owner: forkOwner,
+                repo: forkRepo,
+                message: 'nuke: completely reset repository to empty state',
+                tree: emptyTree.data.sha,
+                parents: [mainBranch.data.commit.sha]
+              });
+
+              // Force update main branch to empty commit
               await github.rest.git.updateRef({
                 owner: forkOwner,
                 repo: forkRepo,
                 ref: 'heads/main',
-                sha: templateMain.data.commit.sha,
+                sha: emptyCommit.data.sha,
                 force: true
               });
 
-              console.log(`✓ Reset ${forkOwner}/${forkRepo} to template state`);
+              console.log('✓ Removed all files from main branch');
+              console.log(`🔥 ${forkOwner}/${forkRepo} has been completely NUKED!`);
+
             } catch (error) {
-              console.log('Repository reset failed or not needed:', error.message);
+              console.log('Repository nuking failed:', error.message);
+              throw error;
             }
 
       - name: Get repository details
