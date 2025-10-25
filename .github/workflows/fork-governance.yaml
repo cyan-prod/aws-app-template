@@ -51,7 +51,16 @@ jobs:
                 console.log(`✓ Deleted ruleset: ${ruleset.name}`);
               }
 
-              // 2. Delete dev branch if it exists
+              // 2. Set default branch back to main first
+              console.log('🔄 Setting default branch to main...');
+              await github.rest.repos.update({
+                owner: forkOwner,
+                repo: forkRepo,
+                default_branch: 'main'
+              });
+              console.log('✓ Set default branch to main');
+
+              // 3. Delete dev branch if it exists
               console.log('🗑️ Deleting dev branch...');
               try {
                 await github.rest.repos.deleteBranch({
@@ -67,15 +76,6 @@ jobs:
                   console.log('Failed to delete dev branch:', error.message);
                 }
               }
-
-              // 3. Set default branch back to main
-              console.log('🔄 Setting default branch to main...');
-              await github.rest.repos.update({
-                owner: forkOwner,
-                repo: forkRepo,
-                default_branch: 'main'
-              });
-              console.log('✓ Set default branch to main');
 
               // 4. Delete all files on main branch (create empty commit)
               console.log('🗑️ Removing all files from main branch...');
