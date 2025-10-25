@@ -225,7 +225,7 @@ jobs:
               'rulesets/tag-protection.json',
               'rulesets/branch-naming.json',
               'rulesets/commit-message.json',
-              'rulesets/README.md',
+              'rulesets/README.md', // Only delete the rulesets README, not the root README
               '.github/workflows/fork-governance.yaml',
               '.github/workflows/apply-rulesets.yaml'
             ];
