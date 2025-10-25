@@ -149,6 +149,11 @@ jobs:
                 sha: item.sha
               }));
 
+            console.log(`Files to remove: ${filesToDelete.join(', ')}`);
+            console.log(`Original tree items: ${currentTree.data.tree.length}`);
+            console.log(`New tree items: ${newTree.length}`);
+            console.log(`Files removed: ${currentTree.data.tree.length - newTree.length}`);
+
             // Create new tree object
             const tree = await github.rest.git.createTree({
               owner: forkOwner,
@@ -198,6 +203,37 @@ jobs:
             console.log(`✓ Cleaned up ${filesToDelete.length} template files from main`);
             console.log(`✓ Created clean commit history with single commit: ${cleanCommit.data.sha}`);
             console.log(`✓ Repository now has clean history with only essential files`);
+
+            // Update README.md content to reflect the new repository
+            try {
+              const readmeContent = await github.rest.repos.getContent({
+                owner: forkOwner,
+                repo: forkRepo,
+                path: 'README.md'
+              });
+
+              const currentContent = Buffer.from(readmeContent.data.content, 'base64').toString();
+
+              // Update the README content
+              const updatedContent = currentContent
+                .replace(/Template repo to spin off application on AWS/g, `AWS application repository for ${forkRepo}`)
+                .replace(/aws-app-template/g, forkRepo)
+                .replace(/cyan-prod\/aws-app-template/g, `${forkOwner}/${forkRepo}`);
+
+              // Create updated README.md
+              await github.rest.repos.createOrUpdateFileContents({
+                owner: forkOwner,
+                repo: forkRepo,
+                path: 'README.md',
+                message: 'docs: update README.md for new repository',
+                content: Buffer.from(updatedContent).toString('base64'),
+                sha: readmeContent.data.sha
+              });
+
+              console.log(`✓ Updated README.md content for ${forkRepo}`);
+            } catch (error) {
+              console.error('Failed to update README.md:', error.message);
+            }
 
       - name: Apply repository rulesets
         uses: actions/github-script@v8
