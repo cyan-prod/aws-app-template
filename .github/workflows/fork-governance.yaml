@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Nuke target repository completely
-        if: ${{ github.event.inputs.nuke_repo == 'true' || github.event_name == 'fork' }}
+        if: ${{ github.event.inputs.nuke_repo == 'true' }}
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GH_PAT_CLASSIC }}
@@ -136,6 +136,48 @@ jobs:
               throw error;
             }
 
+      - name: Sync from upstream and stop workflow
+        if: ${{ github.event.inputs.nuke_repo == 'true' }}
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GH_PAT_CLASSIC }}
+          script: |
+            const forkOwner = '${{ github.event.inputs.target_repo && 'cyan-prod' || github.event.forkee.owner.login }}';
+            const forkRepo = '${{ github.event.inputs.target_repo || github.event.forkee.name }}';
+
+            console.log(`🔄 Syncing ${forkOwner}/${forkRepo} from upstream template...`);
+
+            try {
+              // Get the latest commit from the template repository
+              const templateMain = await github.rest.repos.getBranch({
+                owner: 'cyan-prod',
+                repo: 'aws-app-template',
+                branch: 'main'
+              });
+
+              // Force update the forked repo to match template
+              await github.rest.git.updateRef({
+                owner: forkOwner,
+                repo: forkRepo,
+                ref: 'heads/main',
+                sha: templateMain.data.commit.sha,
+                force: true
+              });
+
+              console.log(`✓ Synced ${forkOwner}/${forkRepo} from upstream template`);
+              console.log(`🛑 Workflow stopped - repository is ready for testing`);
+
+              // Stop the workflow by exiting with code 1
+              process.exit(1);
+
+            } catch (error) {
+              console.log('Sync from upstream failed:', error.message);
+              console.log(`🛑 Workflow stopped anyway - repository is ready for testing`);
+
+              // Stop the workflow by exiting with code 1 (even on error)
+              process.exit(1);
+            }
+
       - name: Clean up rulesets only (skip nuking)
         if: ${{ github.event.inputs.nuke_repo == 'false' && github.event_name == 'workflow_dispatch' }}
         uses: actions/github-script@v8
@@ -171,6 +213,7 @@ jobs:
             }
 
       - name: Get repository details
+        if: ${{ github.event.inputs.nuke_repo == 'false' || github.event_name == 'fork' }}
         id: repo-info
         uses: actions/github-script@v8
         with:
@@ -202,6 +245,7 @@ jobs:
             core.setOutput('url', repoUrl);
 
       - name: Validate repository naming convention
+        if: ${{ github.event.inputs.nuke_repo == 'false' || github.event_name == 'fork' }}
         id: validate-name
         uses: actions/github-script@v8
         with:
@@ -246,6 +290,7 @@ jobs:
             }
 
       - name: Clean up governance files on main branch
+        if: ${{ github.event.inputs.nuke_repo == 'false' || github.event_name == 'fork' }}
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GH_PAT_CLASSIC }}
@@ -388,6 +433,7 @@ jobs:
             }
 
       - name: Apply repository rulesets
+        if: ${{ github.event.inputs.nuke_repo == 'false' || github.event_name == 'fork' }}
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GH_PAT_CLASSIC }}
@@ -436,6 +482,7 @@ jobs:
             return results;
 
       - name: Create dev branch from cleaned main and set as default
+        if: ${{ github.event.inputs.nuke_repo == 'false' || github.event_name == 'fork' }}
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GH_PAT_CLASSIC }}
@@ -490,6 +537,7 @@ jobs:
             }
 
       - name: Create environments
+        if: ${{ github.event.inputs.nuke_repo == 'false' || github.event_name == 'fork' }}
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GH_PAT_CLASSIC }}
@@ -519,6 +567,7 @@ jobs:
             }
 
       - name: Enable security features
+        if: ${{ github.event.inputs.nuke_repo == 'false' || github.event_name == 'fork' }}
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GH_PAT_CLASSIC }}
@@ -570,6 +619,7 @@ jobs:
             }
 
       - name: Check required files updated
+        if: ${{ github.event.inputs.nuke_repo == 'false' || github.event_name == 'fork' }}
         id: check-files
         uses: actions/github-script@v8
         continue-on-error: true
@@ -616,6 +666,7 @@ jobs:
             return warnings;
 
       - name: Create setup notification issue
+        if: ${{ github.event.inputs.nuke_repo == 'false' || github.event_name == 'fork' }}
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GH_PAT_CLASSIC }}
