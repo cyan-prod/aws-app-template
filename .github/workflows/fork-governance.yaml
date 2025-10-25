@@ -186,12 +186,13 @@ jobs:
               parents: [] // No parents = orphan commit (clean history)
             });
 
-            // Update main branch reference to point to the clean commit
+            // Update main branch reference to point to the clean commit (force update)
             await github.rest.git.updateRef({
               owner: forkOwner,
               repo: forkRepo,
               ref: 'heads/main',
-              sha: cleanCommit.data.sha
+              sha: cleanCommit.data.sha,
+              force: true // Force update to allow non-fast-forward
             });
 
             console.log(`✓ Cleaned up ${filesToDelete.length} template files from main`);
