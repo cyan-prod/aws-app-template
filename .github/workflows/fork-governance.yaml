@@ -11,6 +11,13 @@ jobs:
       - name: Checkout template repository
         uses: actions/checkout@v5
 
+      - name: Generate App Token
+        id: generate_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: Get forked repository details
         id: fork-info
         uses: actions/github-script@v8
@@ -76,7 +83,7 @@ jobs:
       - name: Apply repository rulesets
         uses: actions/github-script@v8
         with:
-          github-token: ${{ secrets.GH_PAT }}
+          github-token: ${{ steps.generate_token.outputs.token }}
           script: |
             const fs = require('fs');
             const path = require('path');
@@ -125,7 +132,7 @@ jobs:
         uses: actions/github-script@v8
         continue-on-error: true
         with:
-          github-token: ${{ secrets.GH_PAT }}
+          github-token: ${{ steps.generate_token.outputs.token }}
           script: |
             const forkOwner = '${{ steps.fork-info.outputs.owner }}';
             const forkRepo = '${{ steps.fork-info.outputs.repo }}';
@@ -209,7 +216,7 @@ jobs:
         uses: actions/github-script@v8
         continue-on-error: true
         with:
-          github-token: ${{ secrets.GH_PAT }}
+          github-token: ${{ steps.generate_token.outputs.token }}
           script: |
             const forkOwner = '${{ steps.fork-info.outputs.owner }}';
             const forkRepo = '${{ steps.fork-info.outputs.repo }}';
@@ -263,7 +270,7 @@ jobs:
         uses: actions/github-script@v8
         continue-on-error: true
         with:
-          github-token: ${{ secrets.GH_PAT }}
+          github-token: ${{ steps.generate_token.outputs.token }}
           script: |
             const forkOwner = '${{ steps.fork-info.outputs.owner }}';
             const forkRepo = '${{ steps.fork-info.outputs.repo }}';
@@ -287,7 +294,7 @@ jobs:
         uses: actions/github-script@v8
         continue-on-error: true
         with:
-          github-token: ${{ secrets.GH_PAT }}
+          github-token: ${{ steps.generate_token.outputs.token }}
           script: |
             const forkOwner = '${{ steps.fork-info.outputs.owner }}';
             const forkRepo = '${{ steps.fork-info.outputs.repo }}';
@@ -331,7 +338,7 @@ jobs:
         uses: actions/github-script@v8
         continue-on-error: true
         with:
-          github-token: ${{ secrets.GH_PAT }}
+          github-token: ${{ steps.generate_token.outputs.token }}
           script: |
             const forkOwner = '${{ steps.fork-info.outputs.owner }}';
             const forkRepo = '${{ steps.fork-info.outputs.repo }}';
@@ -375,7 +382,7 @@ jobs:
       - name: Create setup notification issue
         uses: actions/github-script@v8
         with:
-          github-token: ${{ secrets.GH_PAT }}
+          github-token: ${{ steps.generate_token.outputs.token }}
           script: |
             const forkOwner = '${{ steps.fork-info.outputs.owner }}';
             const forkRepo = '${{ steps.fork-info.outputs.repo }}';
