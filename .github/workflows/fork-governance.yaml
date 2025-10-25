@@ -2,6 +2,20 @@ name: Fork Governance
 
 on:
   fork:
+  workflow_dispatch:
+    inputs:
+      target_repo:
+        description: 'Target repository name (e.g., cyan-prod/aws-app-test)'
+        required: true
+        type: string
+      target_owner:
+        description: 'Target repository owner (e.g., cyan-prod)'
+        required: true
+        type: string
+      target_repo_name:
+        description: 'Target repository name only (e.g., aws-app-test)'
+        required: true
+        type: string
 
 jobs:
   setup-forked-repo:
@@ -11,30 +25,43 @@ jobs:
       - name: Checkout template repository
         uses: actions/checkout@v5
 
-      - name: Get forked repository details
-        id: fork-info
+      - name: Get repository details
+        id: repo-info
         uses: actions/github-script@v8
         with:
           script: |
-            const forkOwner = context.payload.forkee.owner.login;
-            const forkRepo = context.payload.forkee.name;
-            const forkFullName = context.payload.forkee.full_name;
-            const forkUrl = context.payload.forkee.html_url;
+            let repoOwner, repoName, repoFullName, repoUrl;
 
-            console.log(`Fork detected: ${forkFullName}`);
-            console.log(`URL: ${forkUrl}`);
+            if (context.eventName === 'fork') {
+              // Fork event - get details from payload
+              repoOwner = context.payload.forkee.owner.login;
+              repoName = context.payload.forkee.name;
+              repoFullName = context.payload.forkee.full_name;
+              repoUrl = context.payload.forkee.html_url;
+              console.log(`Fork detected: ${repoFullName}`);
+            } else if (context.eventName === 'workflow_dispatch') {
+              // Manual dispatch - get details from inputs
+              repoOwner = '${{ github.event.inputs.target_owner }}';
+              repoName = '${{ github.event.inputs.target_repo_name }}';
+              repoFullName = '${{ github.event.inputs.target_repo }}';
+              repoUrl = `https://github.com/${repoFullName}`;
+              console.log(`Manual dispatch for: ${repoFullName}`);
+            }
 
-            core.setOutput('owner', forkOwner);
-            core.setOutput('repo', forkRepo);
-            core.setOutput('full_name', forkFullName);
-            core.setOutput('url', forkUrl);
+            console.log(`Repository: ${repoFullName}`);
+            console.log(`URL: ${repoUrl}`);
+
+            core.setOutput('owner', repoOwner);
+            core.setOutput('repo', repoName);
+            core.setOutput('full_name', repoFullName);
+            core.setOutput('url', repoUrl);
 
       - name: Validate repository naming convention
         id: validate-name
         uses: actions/github-script@v8
         with:
           script: |
-            const repoName = '${{ steps.fork-info.outputs.repo }}';
+            const repoName = '${{ steps.repo-info.outputs.repo }}';
             const namePattern = /^aws-[a-z0-9]+(-[a-z0-9]+)*$/;
 
             console.log(`Validating repository name: ${repoName}`);
@@ -81,8 +108,8 @@ jobs:
             const fs = require('fs');
             const path = require('path');
 
-            const forkOwner = '${{ steps.fork-info.outputs.owner }}';
-            const forkRepo = '${{ steps.fork-info.outputs.repo }}';
+            const forkOwner = '${{ steps.repo-info.outputs.owner }}';
+            const forkRepo = '${{ steps.repo-info.outputs.repo }}';
 
             console.log(`\nApplying rulesets to ${forkOwner}/${forkRepo}...\n`);
 
@@ -127,8 +154,8 @@ jobs:
         with:
           github-token: ${{ secrets.GH_PAT }}
           script: |
-            const forkOwner = '${{ steps.fork-info.outputs.owner }}';
-            const forkRepo = '${{ steps.fork-info.outputs.repo }}';
+            const forkOwner = '${{ steps.repo-info.outputs.owner }}';
+            const forkRepo = '${{ steps.repo-info.outputs.repo }}';
 
             console.log('Cleaning up template-specific files from main branch...');
 
@@ -211,8 +238,8 @@ jobs:
         with:
           github-token: ${{ secrets.GH_PAT }}
           script: |
-            const forkOwner = '${{ steps.fork-info.outputs.owner }}';
-            const forkRepo = '${{ steps.fork-info.outputs.repo }}';
+            const forkOwner = '${{ steps.repo-info.outputs.owner }}';
+            const forkRepo = '${{ steps.repo-info.outputs.repo }}';
 
             try {
               // Check if dev branch exists
@@ -265,8 +292,8 @@ jobs:
         with:
           github-token: ${{ secrets.GH_PAT }}
           script: |
-            const forkOwner = '${{ steps.fork-info.outputs.owner }}';
-            const forkRepo = '${{ steps.fork-info.outputs.repo }}';
+            const forkOwner = '${{ steps.repo-info.outputs.owner }}';
+            const forkRepo = '${{ steps.repo-info.outputs.repo }}';
 
             const environments = ['dev', 'staging', 'prod'];
 
@@ -289,8 +316,8 @@ jobs:
         with:
           github-token: ${{ secrets.GH_PAT }}
           script: |
-            const forkOwner = '${{ steps.fork-info.outputs.owner }}';
-            const forkRepo = '${{ steps.fork-info.outputs.repo }}';
+            const forkOwner = '${{ steps.repo-info.outputs.owner }}';
+            const forkRepo = '${{ steps.repo-info.outputs.repo }}';
 
             // Enable vulnerability alerts
             try {
@@ -333,8 +360,8 @@ jobs:
         with:
           github-token: ${{ secrets.GH_PAT }}
           script: |
-            const forkOwner = '${{ steps.fork-info.outputs.owner }}';
-            const forkRepo = '${{ steps.fork-info.outputs.repo }}';
+            const forkOwner = '${{ steps.repo-info.outputs.owner }}';
+            const forkRepo = '${{ steps.repo-info.outputs.repo }}';
 
             const requiredFiles = ['README.md', 'CONTRIBUTING.md'];
             const warnings = [];
@@ -377,8 +404,8 @@ jobs:
         with:
           github-token: ${{ secrets.GH_PAT }}
           script: |
-            const forkOwner = '${{ steps.fork-info.outputs.owner }}';
-            const forkRepo = '${{ steps.fork-info.outputs.repo }}';
+            const forkOwner = '${{ steps.repo-info.outputs.owner }}';
+            const forkRepo = '${{ steps.repo-info.outputs.repo }}';
             const nameValid = '${{ steps.validate-name.outputs.valid }}';
             const nameIssues = '${{ steps.validate-name.outputs.issues }}';
             const nameSuggestion = '${{ steps.validate-name.outputs.suggestion }}';
@@ -519,8 +546,8 @@ jobs:
         continue-on-error: true
         with:
           script: |
-            const forkFullName = '${{ steps.fork-info.outputs.full_name }}';
-            const forkUrl = '${{ steps.fork-info.outputs.url }}';
+            const forkFullName = '${{ steps.repo-info.outputs.full_name }}';
+            const forkUrl = '${{ steps.repo-info.outputs.url }}';
 
             console.log(`Fork created: ${forkFullName}`);
             console.log(`URL: ${forkUrl}`);
