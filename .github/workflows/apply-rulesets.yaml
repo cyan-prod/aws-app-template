@@ -21,7 +21,7 @@ jobs:
       - name: Apply repository rulesets
         uses: actions/github-script@v8
         with:
-          github-token: ${{ secrets.GH_PAT }}
+          github-token: ${{ secrets.GH_PAT_CLASSIC }}
           script: |
             const fs = require('fs');
             const path = require('path');
