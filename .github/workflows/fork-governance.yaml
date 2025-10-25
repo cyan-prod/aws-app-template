@@ -207,6 +207,60 @@ jobs:
               core.setOutput('valid', 'true');
             }
 
+      - name: Create dev branch from main and set as default
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GH_PAT_CLASSIC }}
+          script: |
+            const forkOwner = '${{ steps.repo-info.outputs.owner }}';
+            const forkRepo = '${{ steps.repo-info.outputs.repo }}';
+
+            try {
+              // Check if dev branch exists
+              await github.rest.repos.getBranch({
+                owner: forkOwner,
+                repo: forkRepo,
+                branch: 'dev'
+              });
+              console.log('Dev branch already exists');
+            } catch (error) {
+              if (error.status === 404) {
+                console.log('Creating dev branch from main...');
+
+                // Get main branch ref (original with all files)
+                const mainBranch = await github.rest.repos.getBranch({
+                  owner: forkOwner,
+                  repo: forkRepo,
+                  branch: 'main'
+                });
+
+                // Create dev branch from main
+                await github.rest.git.createRef({
+                  owner: forkOwner,
+                  repo: forkRepo,
+                  ref: 'refs/heads/dev',
+                  sha: mainBranch.data.commit.sha
+                });
+
+                console.log('✓ Dev branch created from main');
+              } else {
+                throw error;
+              }
+            }
+
+            // Set dev as default branch
+            try {
+              await github.rest.repos.update({
+                owner: forkOwner,
+                repo: forkRepo,
+                default_branch: 'dev'
+              });
+              console.log('✓ Set dev as default branch');
+            } catch (error) {
+              console.error('Failed to set default branch:', error.message);
+              throw new Error(`Failed to set dev as default branch: ${error.message}`);
+            }
+
       - name: Clean up governance files on main branch
         uses: actions/github-script@v8
         with:
@@ -431,59 +485,6 @@ jobs:
 
             return results;
 
-      - name: Create dev branch from cleaned main and set as default
-        uses: actions/github-script@v8
-        with:
-          github-token: ${{ secrets.GH_PAT_CLASSIC }}
-          script: |
-            const forkOwner = '${{ steps.repo-info.outputs.owner }}';
-            const forkRepo = '${{ steps.repo-info.outputs.repo }}';
-
-            try {
-              // Check if dev branch exists
-              await github.rest.repos.getBranch({
-                owner: forkOwner,
-                repo: forkRepo,
-                branch: 'dev'
-              });
-              console.log('Dev branch already exists');
-            } catch (error) {
-              if (error.status === 404) {
-                console.log('Creating dev branch from cleaned main...');
-
-                // Get main branch ref (now cleaned)
-                const mainBranch = await github.rest.repos.getBranch({
-                  owner: forkOwner,
-                  repo: forkRepo,
-                  branch: 'main'
-                });
-
-                // Create dev branch from main
-                await github.rest.git.createRef({
-                  owner: forkOwner,
-                  repo: forkRepo,
-                  ref: 'refs/heads/dev',
-                  sha: mainBranch.data.commit.sha
-                });
-
-                console.log('✓ Dev branch created from cleaned main');
-              } else {
-                throw error;
-              }
-            }
-
-            // Set dev as default branch
-            try {
-              await github.rest.repos.update({
-                owner: forkOwner,
-                repo: forkRepo,
-                default_branch: 'dev'
-              });
-              console.log('✓ Set dev as default branch');
-            } catch (error) {
-              console.error('Failed to set default branch:', error.message);
-              throw new Error(`Failed to set dev as default branch: ${error.message}`);
-            }
 
       - name: Create environments
         uses: actions/github-script@v8
