@@ -362,7 +362,11 @@ jobs:
               // Update the workflows README content
               const updatedWorkflowsContent = currentWorkflowsContent
                 .replace(/aws-app-template/g, forkRepo)
-                .replace(/cyan-prod\/aws-app-template/g, `${forkOwner}/${forkRepo}`);
+                .replace(/cyan-prod\/aws-app-template/g, `${forkOwner}/${forkRepo}`)
+                // Remove sections about deleted workflows
+                .replace(/### `fork-governance\.yaml`\nTriggers on fork - automatically sets up governance on forked repos\.\n\n### `apply-rulesets\.yaml`\nTriggers on push to `main` with `\/rulesets\/\*\*` changes - auto-applies ruleset updates\.\n\n---\n\n/, '')
+                .replace(/## What Fork Governance Does\n\nWhen someone forks:\n1\. Validates repo name \(`aws-\*` lowercase kebab-case\)\n2\. Applies all 5 rulesets\n3\. Creates `dev` branch, sets as default\n4\. Creates environments: `dev`, `staging`, `prod`\n5\. Enables Dependabot, vulnerability alerts, auto-delete branches\n6\. Checks README\/CONTRIBUTING updated\n7\. Creates setup issue with instructions\n\n---\n\n/, '')
+                .replace(/## Setup Required: GH_PAT Secret\n\nCreate Personal Access Token with scopes:\n- `repo` - Full repository access\n- `administration:write` - Manage rulesets\n\n\*\*Steps:\*\*\n1\. GitHub Settings → Developer settings → Personal access tokens → Tokens \(classic\)\n2\. Generate new token \(classic\)\n3\. Select scopes: `repo`, `admin:repo_hook`\n4\. Copy token\n5\. Add to template repo: Settings → Secrets → Actions → New secret\n6\. Name: `GH_PAT`, Value: your token\n\n---\n\n/, '');
 
               // Create updated .github/workflows/README.md
               await github.rest.repos.createOrUpdateFileContents({
