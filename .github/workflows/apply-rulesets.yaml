@@ -1,0 +1,82 @@
+name: Apply Repository Rulesets
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'rulesets/**'
+  workflow_dispatch:
+
+permissions:
+  administration: write
+  contents: read
+
+jobs:
+  apply-rulesets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Apply repository rulesets
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const rulesetDir = 'rulesets';
+            const rulesetFiles = fs.readdirSync(rulesetDir)
+              .filter(file => file.endsWith('.json'));
+
+            console.log(`Found ${rulesetFiles.length} ruleset configuration(s)`);
+
+            for (const file of rulesetFiles) {
+              const filePath = path.join(rulesetDir, file);
+              const rulesetConfig = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+
+              console.log(`\nProcessing: ${file}`);
+              console.log(`Ruleset name: ${rulesetConfig.name}`);
+
+              try {
+                // Check if ruleset already exists
+                const existingRulesets = await github.rest.repos.getRepoRulesets({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo
+                });
+
+                const existing = existingRulesets.data.find(r => r.name === rulesetConfig.name);
+
+                if (existing) {
+                  // Update existing ruleset
+                  console.log(`Updating existing ruleset (ID: ${existing.id})`);
+                  await github.rest.repos.updateRepoRuleset({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    ruleset_id: existing.id,
+                    ...rulesetConfig
+                  });
+                  console.log(`✓ Successfully updated: ${rulesetConfig.name}`);
+                } else {
+                  // Create new ruleset
+                  console.log(`Creating new ruleset`);
+                  await github.rest.repos.createRepoRuleset({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    ...rulesetConfig
+                  });
+                  console.log(`✓ Successfully created: ${rulesetConfig.name}`);
+                }
+              } catch (error) {
+                console.error(`✗ Failed to apply ${file}:`, error.message);
+                if (error.status === 403) {
+                  console.error('  Permission denied. Ensure the workflow has "administration: write" permission.');
+                } else if (error.status === 422) {
+                  console.error('  Validation error. Check the ruleset configuration format.');
+                }
+              }
+            }
+
+            console.log('\n=== Ruleset Application Complete ===');

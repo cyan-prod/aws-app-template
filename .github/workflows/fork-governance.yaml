@@ -1,0 +1,435 @@
+name: Fork Governance
+
+on:
+  fork:
+
+jobs:
+  setup-forked-repo:
+    name: Apply governance to forked repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout template repository
+        uses: actions/checkout@v4
+
+      - name: Get forked repository details
+        id: fork-info
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const forkOwner = context.payload.forkee.owner.login;
+            const forkRepo = context.payload.forkee.name;
+            const forkFullName = context.payload.forkee.full_name;
+            const forkUrl = context.payload.forkee.html_url;
+
+            console.log(`Fork detected: ${forkFullName}`);
+            console.log(`URL: ${forkUrl}`);
+
+            core.setOutput('owner', forkOwner);
+            core.setOutput('repo', forkRepo);
+            core.setOutput('full_name', forkFullName);
+            core.setOutput('url', forkUrl);
+
+      - name: Validate repository naming convention
+        id: validate-name
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const repoName = '${{ steps.fork-info.outputs.repo }}';
+            const namePattern = /^aws-[a-z0-9]+(-[a-z0-9]+)*$/;
+
+            console.log(`Validating repository name: ${repoName}`);
+
+            if (!namePattern.test(repoName)) {
+              console.log('❌ Repository name does NOT follow convention');
+
+              let issues = [];
+
+              if (!repoName.startsWith('aws-')) {
+                issues.push('Must start with "aws-"');
+              }
+
+              if (repoName !== repoName.toLowerCase()) {
+                issues.push('Must be all lowercase');
+              }
+
+              if (repoName.includes('_')) {
+                issues.push('Use hyphens (-) not underscores (_)');
+              }
+
+              if (/[A-Z]/.test(repoName)) {
+                issues.push('No uppercase letters allowed');
+              }
+
+              const suggestion = repoName
+                .toLowerCase()
+                .replace(/[_\s]+/g, '-')
+                .replace(/^(?!aws-)/, 'aws-');
+
+              core.setOutput('valid', 'false');
+              core.setOutput('issues', issues.join('; '));
+              core.setOutput('suggestion', suggestion);
+            } else {
+              console.log('✓ Repository name follows convention');
+              core.setOutput('valid', 'true');
+            }
+
+      - name: Apply repository rulesets
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GH_PAT }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const forkOwner = '${{ steps.fork-info.outputs.owner }}';
+            const forkRepo = '${{ steps.fork-info.outputs.repo }}';
+
+            console.log(`\nApplying rulesets to ${forkOwner}/${forkRepo}...\n`);
+
+            const rulesetDir = 'rulesets';
+            const rulesetFiles = fs.readdirSync(rulesetDir)
+              .filter(file => file.endsWith('.json'));
+
+            const results = [];
+
+            for (const file of rulesetFiles) {
+              const filePath = path.join(rulesetDir, file);
+              const rulesetConfig = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+
+              console.log(`Processing: ${file} - ${rulesetConfig.name}`);
+
+              try {
+                const response = await github.rest.repos.createRepoRuleset({
+                  owner: forkOwner,
+                  repo: forkRepo,
+                  ...rulesetConfig
+                });
+
+                console.log(`✓ Applied: ${rulesetConfig.name} (ID: ${response.data.id})`);
+                results.push({ file, status: 'success', name: rulesetConfig.name });
+              } catch (error) {
+                console.error(`✗ Failed: ${rulesetConfig.name} - ${error.message}`);
+                results.push({ file, status: 'failed', name: rulesetConfig.name, error: error.message });
+              }
+            }
+
+            const successCount = results.filter(r => r.status === 'success').length;
+            const failCount = results.filter(r => r.status === 'failed').length;
+
+            console.log(`\n=== Summary ===`);
+            console.log(`Total: ${results.length} | Success: ${successCount} | Failed: ${failCount}`);
+
+            return results;
+
+      - name: Create dev branch and set as default
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          github-token: ${{ secrets.GH_PAT }}
+          script: |
+            const forkOwner = '${{ steps.fork-info.outputs.owner }}';
+            const forkRepo = '${{ steps.fork-info.outputs.repo }}';
+
+            try {
+              // Check if dev branch exists
+              await github.rest.repos.getBranch({
+                owner: forkOwner,
+                repo: forkRepo,
+                branch: 'dev'
+              });
+              console.log('Dev branch already exists');
+            } catch (error) {
+              if (error.status === 404) {
+                console.log('Creating dev branch...');
+
+                // Get main branch ref
+                const mainBranch = await github.rest.repos.getBranch({
+                  owner: forkOwner,
+                  repo: forkRepo,
+                  branch: 'main'
+                });
+
+                // Create dev branch from main
+                await github.rest.git.createRef({
+                  owner: forkOwner,
+                  repo: forkRepo,
+                  ref: 'refs/heads/dev',
+                  sha: mainBranch.data.commit.sha
+                });
+
+                console.log('✓ Dev branch created');
+              } else {
+                throw error;
+              }
+            }
+
+            // Set dev as default branch
+            try {
+              await github.rest.repos.update({
+                owner: forkOwner,
+                repo: forkRepo,
+                default_branch: 'dev'
+              });
+              console.log('✓ Set dev as default branch');
+            } catch (error) {
+              console.error('Failed to set default branch:', error.message);
+            }
+
+      - name: Create environments
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          github-token: ${{ secrets.GH_PAT }}
+          script: |
+            const forkOwner = '${{ steps.fork-info.outputs.owner }}';
+            const forkRepo = '${{ steps.fork-info.outputs.repo }}';
+
+            const environments = ['dev', 'staging', 'prod'];
+
+            for (const env of environments) {
+              try {
+                await github.rest.repos.createOrUpdateEnvironment({
+                  owner: forkOwner,
+                  repo: forkRepo,
+                  environment_name: env
+                });
+                console.log(`✓ Created environment: ${env}`);
+              } catch (error) {
+                console.error(`Failed to create ${env}:`, error.message);
+              }
+            }
+
+      - name: Enable security features
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          github-token: ${{ secrets.GH_PAT }}
+          script: |
+            const forkOwner = '${{ steps.fork-info.outputs.owner }}';
+            const forkRepo = '${{ steps.fork-info.outputs.repo }}';
+
+            // Enable vulnerability alerts
+            try {
+              await github.rest.repos.enableVulnerabilityAlerts({
+                owner: forkOwner,
+                repo: forkRepo
+              });
+              console.log('✓ Enabled vulnerability alerts');
+            } catch (error) {
+              console.error('Failed to enable vulnerability alerts:', error.message);
+            }
+
+            // Enable automated security fixes (Dependabot)
+            try {
+              await github.rest.repos.enableAutomatedSecurityFixes({
+                owner: forkOwner,
+                repo: forkRepo
+              });
+              console.log('✓ Enabled Dependabot security updates');
+            } catch (error) {
+              console.error('Failed to enable Dependabot:', error.message);
+            }
+
+            // Enable auto-delete head branches
+            try {
+              await github.rest.repos.update({
+                owner: forkOwner,
+                repo: forkRepo,
+                delete_branch_on_merge: true
+              });
+              console.log('✓ Enabled auto-delete branch after merge');
+            } catch (error) {
+              console.error('Failed to enable auto-delete:', error.message);
+            }
+
+      - name: Check required files updated
+        id: check-files
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          github-token: ${{ secrets.GH_PAT }}
+          script: |
+            const forkOwner = '${{ steps.fork-info.outputs.owner }}';
+            const forkRepo = '${{ steps.fork-info.outputs.repo }}';
+
+            const requiredFiles = ['README.md', 'CONTRIBUTING.md'];
+            const warnings = [];
+
+            for (const file of requiredFiles) {
+              try {
+                const { data } = await github.rest.repos.getContent({
+                  owner: forkOwner,
+                  repo: forkRepo,
+                  path: file
+                });
+
+                const content = Buffer.from(data.content, 'base64').toString();
+
+                // Check if file still contains template placeholder text
+                if (file === 'README.md') {
+                  if (content.includes('Template repo to spin off application on AWS')) {
+                    warnings.push('README.md still contains template text - needs customization');
+                  }
+                }
+
+                if (file === 'CONTRIBUTING.md') {
+                  if (content.includes('aws-app-template')) {
+                    warnings.push('CONTRIBUTING.md still references template name - needs update');
+                  }
+                }
+
+                console.log(`✓ ${file} exists`);
+              } catch (error) {
+                warnings.push(`${file} is missing`);
+                console.error(`✗ ${file} not found`);
+              }
+            }
+
+            core.setOutput('warnings', warnings.join('; '));
+            return warnings;
+
+      - name: Create setup notification issue
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GH_PAT }}
+          script: |
+            const forkOwner = '${{ steps.fork-info.outputs.owner }}';
+            const forkRepo = '${{ steps.fork-info.outputs.repo }}';
+            const nameValid = '${{ steps.validate-name.outputs.valid }}';
+            const nameIssues = '${{ steps.validate-name.outputs.issues }}';
+            const nameSuggestion = '${{ steps.validate-name.outputs.suggestion }}';
+            const fileWarnings = '${{ steps.check-files.outputs.warnings }}';
+
+            let body = `# 🎉 Repository Setup Complete\n\n`;
+            body += `This repository has been forked from the AWS app template and governance rules have been applied.\n\n`;
+
+            // Naming validation
+            body += `## 📝 Repository Naming\n\n`;
+            if (nameValid === 'true') {
+              body += `✅ **Repository name follows convention**: \`${forkRepo}\`\n\n`;
+            } else {
+              body += `⚠️ **Repository name does NOT follow convention**\n\n`;
+              body += `**Current name:** \`${forkRepo}\`\n`;
+              body += `**Issues:** ${nameIssues}\n`;
+              body += `**Suggested name:** \`${nameSuggestion}\`\n\n`;
+              body += `**Convention:** Repository names must:\n`;
+              body += `- Start with \`aws-\`\n`;
+              body += `- Use lowercase letters only\n`;
+              body += `- Use kebab-case (hyphens, not underscores)\n`;
+              body += `- Example: \`aws-user-service\`, \`aws-payment-api\`\n\n`;
+              body += `To rename: **Settings** → **General** → **Repository name**\n\n`;
+            }
+
+            // Applied rules
+            body += `## 🔒 Applied Governance Rules\n\n`;
+            body += `The following rulesets have been applied:\n\n`;
+            body += `- ✅ **Branch Protection** - \`main\` and \`dev\` require PR approval\n`;
+            body += `- ✅ **Tag Protection** - \`v*\` tags cannot be force-pushed or deleted\n`;
+            body += `- ✅ **Branch Naming** - Must follow \`type/jira-123\` pattern (lowercase, kebab-case)\n`;
+            body += `- ✅ **Commit Messages** - Must follow \`jira-123: description\` pattern (lowercase)\n\n`;
+
+            // Required status checks
+            body += `## ⚙️ Required Status Checks\n\n`;
+            body += `Before merging to \`main\` or \`dev\`, these checks must pass:\n\n`;
+            body += `- \`pr-checks\` - Linting, formatting, testing\n`;
+            body += `- \`static-code-scan\` - Security and code quality scanning\n`;
+            body += `- \`terraform-plan\` - Infrastructure validation\n\n`;
+            body += `**Action Required:** Create these workflow files in \`.github/workflows/\`\n\n`;
+
+            // Branch setup
+            body += `## 🌿 Branch Setup\n\n`;
+            body += `- ✅ \`main\` - Production branch (protected)\n`;
+            body += `- ✅ \`dev\` - Development branch (protected, **default**)\n\n`;
+
+            // Environment setup
+            body += `## 🌍 Environments Created\n\n`;
+            body += `- ✅ \`dev\` - Development environment\n`;
+            body += `- ✅ \`staging\` - Staging environment\n`;
+            body += `- ✅ \`prod\` - Production environment\n\n`;
+            body += `Configure environment-specific settings in **Settings** → **Environments**\n\n`;
+
+            // Security features
+            body += `## 🔒 Security Features Enabled\n\n`;
+            body += `- ✅ Vulnerability alerts\n`;
+            body += `- ✅ Dependabot security updates\n`;
+            body += `- ✅ Auto-delete branch after merge\n\n`;
+
+            // Required files check
+            if (fileWarnings) {
+              body += `## ⚠️ Required Files Need Attention\n\n`;
+              const warningList = fileWarnings.split('; ');
+              for (const warning of warningList) {
+                body += `- ⚠️ ${warning}\n`;
+              }
+              body += `\n**Action Required:** Update these files with your project-specific information.\n\n`;
+            } else {
+              body += `## ✅ Required Files\n\n`;
+              body += `- ✅ README.md exists\n`;
+              body += `- ✅ CONTRIBUTING.md exists\n\n`;
+            }
+
+            // Next steps
+            body += `## 🚀 Next Steps\n\n`;
+            if (nameValid !== 'true') {
+              body += `1. **Fix repository name** (see naming section above)\n`;
+            }
+            if (fileWarnings) {
+              body += `1. **Update required files** (see warnings above)\n`;
+            }
+            body += `1. **Create required workflow files** for status checks:\n`;
+            body += `   - \`.github/workflows/pr-checks.yaml\`\n`;
+            body += `   - \`.github/workflows/static-code-scan.yaml\`\n`;
+            body += `   - \`.github/workflows/terraform-plan.yaml\`\n`;
+            body += `1. **Customize README.md** with your project details\n`;
+            body += `1. **Configure environments** in Settings → Environments (add secrets, protection rules)\n`;
+            body += `1. **Set up AWS credentials** in repository secrets\n`;
+            body += `1. **Start developing** - create feature branches following \`type/jira-123\` pattern\n\n`;
+
+            // PR template
+            body += `## 📝 Pull Request Template\n\n`;
+            body += `A PR template has been included at \`.github/pull_request_template.md\`\n`;
+            body += `It will automatically appear when creating PRs and is **enforced by code review**.\n\n`;
+
+            // Documentation
+            body += `## 📚 Documentation\n\n`;
+            body += `- [Contributing Guidelines](./CONTRIBUTING.md)\n`;
+            body += `- [Repository Rulesets](./rulesets/README.md)\n`;
+            body += `- [Architecture Diagram](./docs/architect.drawio.png)\n\n`;
+            body += `---\n\n`;
+            body += `*This issue was automatically created by the Fork Governance workflow.*`;
+
+            // Create the issue
+            const labels = ['setup'];
+            if (nameValid !== 'true' || fileWarnings) {
+              labels.push('action-required');
+            }
+            if (nameValid !== 'true') {
+              labels.push('naming-convention');
+            }
+            if (fileWarnings) {
+              labels.push('documentation');
+            }
+
+            const issue = await github.rest.issues.create({
+              owner: forkOwner,
+              repo: forkRepo,
+              title: (nameValid !== 'true' || fileWarnings)
+                ? '⚠️ Repository Setup Complete - Action Required'
+                : '✅ Repository Setup Complete - Review Governance Rules',
+              body: body,
+              labels: labels
+            });
+
+            console.log(`✓ Created issue #${issue.data.number}: ${issue.data.html_url}`);
+
+      - name: Notify in template repo
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          script: |
+            const forkFullName = '${{ steps.fork-info.outputs.full_name }}';
+            const forkUrl = '${{ steps.fork-info.outputs.url }}';
+
+            console.log(`Fork created: ${forkFullName}`);
+            console.log(`URL: ${forkUrl}`);
+            console.log('✓ Governance rules applied successfully');
