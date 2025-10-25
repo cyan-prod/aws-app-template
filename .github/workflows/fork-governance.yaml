@@ -80,11 +80,27 @@ jobs:
               // 4. Delete all files on main branch (create empty commit)
               console.log('🗑️ Removing all files from main branch...');
 
-              // Create an empty tree
-              const emptyTree = await github.rest.git.createTree({
+              // Create a simple README file to represent "empty" state
+              const readmeContent = `# ${forkRepo}\n\nThis repository has been reset to a clean state.\n\n## Next Steps\n- Add your application code\n- Configure your environment\n- Set up your CI/CD pipeline\n`;
+
+              // Create blob for README
+              const readmeBlob = await github.rest.git.createBlob({
                 owner: forkOwner,
                 repo: forkRepo,
-                tree: []
+                content: Buffer.from(readmeContent).toString('base64'),
+                encoding: 'base64'
+              });
+
+              // Create tree with just the README
+              const cleanTree = await github.rest.git.createTree({
+                owner: forkOwner,
+                repo: forkRepo,
+                tree: [{
+                  path: 'README.md',
+                  mode: '100644',
+                  type: 'blob',
+                  sha: readmeBlob.data.sha
+                }]
               });
 
               // Get current main branch commit
@@ -94,21 +110,21 @@ jobs:
                 branch: 'main'
               });
 
-              // Create empty commit
-              const emptyCommit = await github.rest.git.createCommit({
+              // Create clean commit
+              const cleanCommit = await github.rest.git.createCommit({
                 owner: forkOwner,
                 repo: forkRepo,
-                message: 'nuke: completely reset repository to empty state',
-                tree: emptyTree.data.sha,
+                message: 'nuke: completely reset repository to clean state',
+                tree: cleanTree.data.sha,
                 parents: [mainBranch.data.commit.sha]
               });
 
-              // Force update main branch to empty commit
+              // Force update main branch to clean commit
               await github.rest.git.updateRef({
                 owner: forkOwner,
                 repo: forkRepo,
                 ref: 'heads/main',
-                sha: emptyCommit.data.sha,
+                sha: cleanCommit.data.sha,
                 force: true
               });
 
