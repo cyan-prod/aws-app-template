@@ -121,7 +121,91 @@ jobs:
 
             return results;
 
-      - name: Create dev branch and set as default
+      - name: Clean up governance files on main branch
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          github-token: ${{ secrets.GH_PAT }}
+          script: |
+            const forkOwner = '${{ steps.fork-info.outputs.owner }}';
+            const forkRepo = '${{ steps.fork-info.outputs.repo }}';
+
+            console.log('Cleaning up template-specific files from main branch...');
+
+            // Files to delete (no longer needed in forked repos)
+            const filesToDelete = [
+              'rulesets/main.json',
+              'rulesets/dev.json',
+              'rulesets/tag-protection.json',
+              'rulesets/branch-naming.json',
+              'rulesets/commit-message.json',
+              'rulesets/README.md',
+              '.github/workflows/fork-governance.yaml',
+              '.github/workflows/apply-rulesets.yaml'
+            ];
+
+            // Get main branch
+            const mainRef = await github.rest.git.getRef({
+              owner: forkOwner,
+              repo: forkRepo,
+              ref: 'heads/main'
+            });
+            const currentCommitSha = mainRef.data.object.sha;
+
+            // Get current commit to get tree SHA
+            const currentCommit = await github.rest.git.getCommit({
+              owner: forkOwner,
+              repo: forkRepo,
+              commit_sha: currentCommitSha
+            });
+            const currentTreeSha = currentCommit.data.tree.sha;
+
+            // Get current tree
+            const currentTree = await github.rest.git.getTree({
+              owner: forkOwner,
+              repo: forkRepo,
+              tree_sha: currentTreeSha,
+              recursive: 'true'
+            });
+
+            // Create new tree without the files to delete
+            const newTree = currentTree.data.tree
+              .filter(item => !filesToDelete.includes(item.path))
+              .map(item => ({
+                path: item.path,
+                mode: item.mode,
+                type: item.type,
+                sha: item.sha
+              }));
+
+            // Create new tree object
+            const tree = await github.rest.git.createTree({
+              owner: forkOwner,
+              repo: forkRepo,
+              tree: newTree
+            });
+
+            // Create commit
+            const commit = await github.rest.git.createCommit({
+              owner: forkOwner,
+              repo: forkRepo,
+              message: 'chore: remove template governance files (rulesets already applied)',
+              tree: tree.data.sha,
+              parents: [currentCommitSha]
+            });
+
+            // Update main branch reference
+            await github.rest.git.updateRef({
+              owner: forkOwner,
+              repo: forkRepo,
+              ref: 'heads/main',
+              sha: commit.data.sha
+            });
+
+            console.log(`✓ Cleaned up ${filesToDelete.length} template files from main`);
+            console.log(`✓ Created cleanup commit: ${commit.data.sha}`);
+
+      - name: Create dev branch from cleaned main and set as default
         uses: actions/github-script@v7
         continue-on-error: true
         with:
@@ -140,9 +224,9 @@ jobs:
               console.log('Dev branch already exists');
             } catch (error) {
               if (error.status === 404) {
-                console.log('Creating dev branch...');
+                console.log('Creating dev branch from cleaned main...');
 
-                // Get main branch ref
+                // Get main branch ref (now cleaned)
                 const mainBranch = await github.rest.repos.getBranch({
                   owner: forkOwner,
                   repo: forkRepo,
@@ -157,7 +241,7 @@ jobs:
                   sha: mainBranch.data.commit.sha
                 });
 
-                console.log('✓ Dev branch created');
+                console.log('✓ Dev branch created from cleaned main');
               } else {
                 throw error;
               }
@@ -429,99 +513,6 @@ jobs:
             });
 
             console.log(`✓ Created issue #${issue.data.number}: ${issue.data.html_url}`);
-
-      - name: Clean up governance files in fork
-        uses: actions/github-script@v7
-        continue-on-error: true
-        with:
-          github-token: ${{ secrets.GH_PAT }}
-          script: |
-            const forkOwner = '${{ steps.fork-info.outputs.owner }}';
-            const forkRepo = '${{ steps.fork-info.outputs.repo }}';
-
-            console.log('Cleaning up template-specific files from forked repo...');
-
-            // Files to delete (no longer needed in forked repos)
-            const filesToDelete = [
-              'rulesets/main.json',
-              'rulesets/dev.json',
-              'rulesets/tag-protection.json',
-              'rulesets/branch-naming.json',
-              'rulesets/commit-message.json',
-              'rulesets/README.md',
-              '.github/workflows/fork-governance.yaml',
-              '.github/workflows/apply-rulesets.yaml'
-            ];
-
-            // Get default branch (should be dev after our changes)
-            const repo = await github.rest.repos.get({
-              owner: forkOwner,
-              repo: forkRepo
-            });
-            const defaultBranch = repo.data.default_branch;
-
-            console.log(`Default branch: ${defaultBranch}`);
-
-            // Get current commit SHA of default branch
-            const ref = await github.rest.git.getRef({
-              owner: forkOwner,
-              repo: forkRepo,
-              ref: `heads/${defaultBranch}`
-            });
-            const currentCommitSha = ref.data.object.sha;
-
-            // Get current commit to get tree SHA
-            const currentCommit = await github.rest.git.getCommit({
-              owner: forkOwner,
-              repo: forkRepo,
-              commit_sha: currentCommitSha
-            });
-            const currentTreeSha = currentCommit.data.tree.sha;
-
-            // Get current tree
-            const currentTree = await github.rest.git.getTree({
-              owner: forkOwner,
-              repo: forkRepo,
-              tree_sha: currentTreeSha,
-              recursive: 'true'
-            });
-
-            // Create new tree without the files to delete
-            const newTree = currentTree.data.tree
-              .filter(item => !filesToDelete.includes(item.path))
-              .map(item => ({
-                path: item.path,
-                mode: item.mode,
-                type: item.type,
-                sha: item.sha
-              }));
-
-            // Create new tree object
-            const tree = await github.rest.git.createTree({
-              owner: forkOwner,
-              repo: forkRepo,
-              tree: newTree
-            });
-
-            // Create commit
-            const commit = await github.rest.git.createCommit({
-              owner: forkOwner,
-              repo: forkRepo,
-              message: 'chore: remove template governance files (rulesets already applied)',
-              tree: tree.data.sha,
-              parents: [currentCommitSha]
-            });
-
-            // Update reference
-            await github.rest.git.updateRef({
-              owner: forkOwner,
-              repo: forkRepo,
-              ref: `heads/${defaultBranch}`,
-              sha: commit.data.sha
-            });
-
-            console.log(`✓ Cleaned up ${filesToDelete.length} template files`);
-            console.log(`✓ Created cleanup commit: ${commit.data.sha}`);
 
       - name: Notify in template repo
         uses: actions/github-script@v7
