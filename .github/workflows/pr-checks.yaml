@@ -34,4 +34,3 @@ jobs:
     uses: chaunceyyann/cyan-actions/.github/workflows/reusable-pr-status-commenter.yml@dev
     with:
       required-checks: "pre-commit,terraform-lint"
-
