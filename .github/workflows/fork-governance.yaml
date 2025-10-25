@@ -110,13 +110,13 @@ jobs:
                 branch: 'main'
               });
 
-              // Create clean commit
+              // Create clean commit (orphan - no parents for clean history)
               const cleanCommit = await github.rest.git.createCommit({
                 owner: forkOwner,
                 repo: forkRepo,
-                message: 'nuke: completely reset repository to clean state',
+                message: 'Initial commit - clean repository state',
                 tree: cleanTree.data.sha,
-                parents: [mainBranch.data.commit.sha]
+                parents: [] // No parents = orphan commit (clean history)
               });
 
               // Force update main branch to clean commit
