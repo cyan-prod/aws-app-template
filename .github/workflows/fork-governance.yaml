@@ -18,6 +18,59 @@ jobs:
       - name: Checkout template repository
         uses: actions/checkout@v5
 
+      - name: Reset repository to clean state
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GH_PAT_CLASSIC }}
+          script: |
+            const forkOwner = '${{ github.event.inputs.target_repo ? "cyan-prod" : context.payload.forkee.owner.login }}';
+            const forkRepo = '${{ github.event.inputs.target_repo || context.payload.forkee.name }}';
+
+            console.log(`Resetting ${forkOwner}/${forkRepo} to clean state...`);
+
+            try {
+              // Delete all existing rulesets
+              const rulesets = await github.rest.repos.getRepoRulesets({
+                owner: forkOwner,
+                repo: forkRepo
+              });
+
+              for (const ruleset of rulesets.data) {
+                await github.rest.repos.deleteRepoRuleset({
+                  owner: forkOwner,
+                  repo: forkRepo,
+                  ruleset_id: ruleset.id
+                });
+                console.log(`✓ Deleted ruleset: ${ruleset.name}`);
+              }
+
+              // Reset to original template state (get the original commit from template)
+              const templateRepo = await github.rest.repos.get({
+                owner: 'cyan-prod',
+                repo: 'aws-app-template'
+              });
+
+              // Get the main branch commit from template
+              const templateMain = await github.rest.repos.getBranch({
+                owner: 'cyan-prod',
+                repo: 'aws-app-template',
+                branch: 'main'
+              });
+
+              // Force update the forked repo to match template
+              await github.rest.git.updateRef({
+                owner: forkOwner,
+                repo: forkRepo,
+                ref: 'heads/main',
+                sha: templateMain.data.commit.sha,
+                force: true
+              });
+
+              console.log(`✓ Reset ${forkOwner}/${forkRepo} to template state`);
+            } catch (error) {
+              console.log('Repository reset failed or not needed:', error.message);
+            }
+
       - name: Get repository details
         id: repo-info
         uses: actions/github-script@v8
