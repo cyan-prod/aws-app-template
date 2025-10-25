@@ -51,7 +51,28 @@ jobs:
                 console.log(`✓ Deleted ruleset: ${ruleset.name}`);
               }
 
-              // 2. Set default branch back to main first
+              // 2. Delete all issues
+              console.log('🗑️ Deleting all issues...');
+              const issues = await github.rest.issues.listForRepo({
+                owner: forkOwner,
+                repo: forkRepo,
+                state: 'all',
+                per_page: 100
+              });
+
+              for (const issue of issues.data) {
+                await github.rest.issues.update({
+                  owner: forkOwner,
+                  repo: forkRepo,
+                  issue_number: issue.number,
+                  state: 'closed'
+                });
+                console.log(`✓ Closed issue #${issue.number}: ${issue.title}`);
+              }
+
+              console.log(`✓ Closed ${issues.data.length} issues`);
+
+              // 3. Set default branch back to main first
               console.log('🔄 Setting default branch to main...');
               await github.rest.repos.update({
                 owner: forkOwner,
@@ -60,7 +81,7 @@ jobs:
               });
               console.log('✓ Set default branch to main');
 
-              // 3. Delete dev branch if it exists
+              // 4. Delete dev branch if it exists
               console.log('🗑️ Deleting dev branch...');
               try {
                 await github.rest.git.deleteRef({
@@ -77,7 +98,7 @@ jobs:
                 }
               }
 
-              // 4. Delete all files on main branch (create empty commit)
+              // 5. Delete all files on main branch (create empty commit)
               console.log('🗑️ Removing all files from main branch...');
 
               // Create a simple README file to represent "empty" state
