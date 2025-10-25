@@ -98,77 +98,9 @@ jobs:
                 }
               }
 
-              // 5. Delete all files on main branch (create empty commit)
-              console.log('🗑️ Removing all files from main branch...');
+              // 5. Sync from upstream template
+              console.log('🔄 Syncing from upstream template...');
 
-              // Create a simple README file to represent "empty" state
-              const readmeContent = `# ${forkRepo}\n\nThis repository has been reset to a clean state.\n\n## Next Steps\n- Add your application code\n- Configure your environment\n- Set up your CI/CD pipeline\n`;
-
-              // Create blob for README
-              const readmeBlob = await github.rest.git.createBlob({
-                owner: forkOwner,
-                repo: forkRepo,
-                content: Buffer.from(readmeContent).toString('base64'),
-                encoding: 'base64'
-              });
-
-              // Create tree with just the README
-              const cleanTree = await github.rest.git.createTree({
-                owner: forkOwner,
-                repo: forkRepo,
-                tree: [{
-                  path: 'README.md',
-                  mode: '100644',
-                  type: 'blob',
-                  sha: readmeBlob.data.sha
-                }]
-              });
-
-              // Get current main branch commit
-              const mainBranch = await github.rest.repos.getBranch({
-                owner: forkOwner,
-                repo: forkRepo,
-                branch: 'main'
-              });
-
-              // Create clean commit (orphan - no parents for clean history)
-              const cleanCommit = await github.rest.git.createCommit({
-                owner: forkOwner,
-                repo: forkRepo,
-                message: 'Initial commit - clean repository state',
-                tree: cleanTree.data.sha,
-                parents: [] // No parents = orphan commit (clean history)
-              });
-
-              // Force update main branch to clean commit
-              await github.rest.git.updateRef({
-                owner: forkOwner,
-                repo: forkRepo,
-                ref: 'heads/main',
-                sha: cleanCommit.data.sha,
-                force: true
-              });
-
-              console.log('✓ Removed all files from main branch');
-              console.log(`🔥 ${forkOwner}/${forkRepo} has been completely NUKED!`);
-
-            } catch (error) {
-              console.log('Repository nuking failed:', error.message);
-              throw error;
-            }
-
-      - name: Sync from upstream and stop workflow
-        if: ${{ github.event.inputs.nuke_repo == 'true' }}
-        uses: actions/github-script@v8
-        with:
-          github-token: ${{ secrets.GH_PAT_CLASSIC }}
-          script: |
-            const forkOwner = '${{ github.event.inputs.target_repo && 'cyan-prod' || github.event.forkee.owner.login }}';
-            const forkRepo = '${{ github.event.inputs.target_repo || github.event.forkee.name }}';
-
-            console.log(`🔄 Syncing ${forkOwner}/${forkRepo} from upstream template...`);
-
-            try {
               // Get the latest commit from the template repository
               const templateMain = await github.rest.repos.getBranch({
                 owner: 'cyan-prod',
@@ -185,19 +117,21 @@ jobs:
                 force: true
               });
 
-              console.log(`✓ Synced ${forkOwner}/${forkRepo} from upstream template`);
+              console.log('✓ Synced from upstream template');
+              console.log(`🔥 ${forkOwner}/${forkRepo} has been completely NUKED and synced!`);
               console.log(`🛑 Workflow stopped - repository is ready for testing`);
 
               // Stop the workflow by exiting with code 1
               process.exit(1);
 
             } catch (error) {
-              console.log('Sync from upstream failed:', error.message);
+              console.log('Repository nuking failed:', error.message);
               console.log(`🛑 Workflow stopped anyway - repository is ready for testing`);
 
               // Stop the workflow by exiting with code 1 (even on error)
               process.exit(1);
             }
+
 
 
       - name: Get repository details
