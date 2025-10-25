@@ -232,36 +232,7 @@ jobs:
 
             console.log(`Files to remove: ${filesToDelete.join(', ')}`);
 
-            // Delete files one by one
-            for (const filePath of filesToDelete) {
-              try {
-                // Check if file exists
-                const fileContent = await github.rest.repos.getContent({
-                  owner: forkOwner,
-                  repo: forkRepo,
-                  path: filePath
-                });
-
-                // Delete the file
-                await github.rest.repos.deleteFile({
-                  owner: forkOwner,
-                  repo: forkRepo,
-                  path: filePath,
-                  message: `Remove template file: ${filePath}`,
-                  sha: fileContent.data.sha
-                });
-
-                console.log(`✓ Deleted: ${filePath}`);
-              } catch (error) {
-                if (error.status === 404) {
-                  console.log(`⚠️ File not found: ${filePath}`);
-                } else {
-                  console.log(`❌ Failed to delete ${filePath}: ${error.message}`);
-                }
-              }
-            }
-
-            // Get the current main branch commit
+            // Get current main branch tree
             const mainRef = await github.rest.git.getRef({
               owner: forkOwner,
               repo: forkRepo,
@@ -269,39 +240,45 @@ jobs:
             });
             const currentCommitSha = mainRef.data.object.sha;
 
-            // Get the first commit in the history
-            let firstCommitSha = currentCommitSha;
-            let commit = await github.rest.git.getCommit({
-              owner: forkOwner,
-              repo: forkRepo,
-              commit_sha: currentCommitSha
-            });
-
-            // Walk back to find the first commit
-            while (commit.data.parents && commit.data.parents.length > 0) {
-              firstCommitSha = commit.data.parents[0].sha;
-              commit = await github.rest.git.getCommit({
-                owner: forkOwner,
-                repo: forkRepo,
-                commit_sha: firstCommitSha
-              });
-            }
-
-            console.log(`Found first commit: ${firstCommitSha}`);
-
-            // Get the current tree (after file deletions)
             const currentCommit = await github.rest.git.getCommit({
               owner: forkOwner,
               repo: forkRepo,
               commit_sha: currentCommitSha
             });
 
-            // Create a single clean commit with the current state
+            // Get the current tree recursively
+            const currentTree = await github.rest.git.getTree({
+              owner: forkOwner,
+              repo: forkRepo,
+              tree_sha: currentCommit.data.tree.sha,
+              recursive: 'true'
+            });
+
+            // Filter out files to delete
+            const newTree = currentTree.data.tree
+              .filter(item => !filesToDelete.includes(item.path))
+              .map(item => ({
+                path: item.path,
+                mode: item.mode,
+                type: item.type,
+                sha: item.sha
+              }));
+
+            console.log(`Original files: ${currentTree.data.tree.length}, After cleanup: ${newTree.length}`);
+
+            // Create new tree without the deleted files
+            const tree = await github.rest.git.createTree({
+              owner: forkOwner,
+              repo: forkRepo,
+              tree: newTree
+            });
+
+            // Create a single clean commit (orphan - no history)
             const cleanCommit = await github.rest.git.createCommit({
               owner: forkOwner,
               repo: forkRepo,
               message: 'Initial commit - forked from aws-app-template',
-              tree: currentCommit.data.tree.sha,
+              tree: tree.data.sha,
               parents: [] // No parents = orphan commit (clean history)
             });
 
@@ -431,6 +408,59 @@ jobs:
 
             return results;
 
+      - name: Create dev branch from cleaned main and set as default
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GH_PAT_CLASSIC }}
+          script: |
+            const forkOwner = '${{ steps.repo-info.outputs.owner }}';
+            const forkRepo = '${{ steps.repo-info.outputs.repo }}';
+
+            try {
+              // Check if dev branch exists
+              await github.rest.repos.getBranch({
+                owner: forkOwner,
+                repo: forkRepo,
+                branch: 'dev'
+              });
+              console.log('Dev branch already exists');
+            } catch (error) {
+              if (error.status === 404) {
+                console.log('Creating dev branch from cleaned main...');
+
+                // Get main branch ref (now cleaned)
+                const mainBranch = await github.rest.repos.getBranch({
+                  owner: forkOwner,
+                  repo: forkRepo,
+                  branch: 'main'
+                });
+
+                // Create dev branch from main
+                await github.rest.git.createRef({
+                  owner: forkOwner,
+                  repo: forkRepo,
+                  ref: 'refs/heads/dev',
+                  sha: mainBranch.data.commit.sha
+                });
+
+                console.log('✓ Dev branch created from cleaned main');
+              } else {
+                throw error;
+              }
+            }
+
+            // Set dev as default branch
+            try {
+              await github.rest.repos.update({
+                owner: forkOwner,
+                repo: forkRepo,
+                default_branch: 'dev'
+              });
+              console.log('✓ Set dev as default branch');
+            } catch (error) {
+              console.error('Failed to set default branch:', error.message);
+              throw new Error(`Failed to set dev as default branch: ${error.message}`);
+            }
 
       - name: Create environments
         uses: actions/github-script@v8
