@@ -23,6 +23,17 @@ jobs:
         with:
           github-token: ${{ secrets.GH_PAT_CLASSIC }}
           script: |
+            // Test token permissions first
+            try {
+              const testResponse = await github.rest.repos.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo
+              });
+              console.log(`✓ Token has access to repository: ${testResponse.data.full_name}`);
+            } catch (error) {
+              console.error(`✗ Token access test failed:`, error.message);
+              process.exit(1);
+            }
             const fs = require('fs');
             const path = require('path');
 
