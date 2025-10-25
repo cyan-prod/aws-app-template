@@ -178,42 +178,8 @@ jobs:
               process.exit(1);
             }
 
-      - name: Clean up rulesets only (skip nuking)
-        if: ${{ github.event.inputs.nuke_repo == 'false' && github.event_name == 'workflow_dispatch' }}
-        uses: actions/github-script@v8
-        with:
-          github-token: ${{ secrets.GH_PAT_CLASSIC }}
-          script: |
-            const forkOwner = '${{ github.event.inputs.target_repo && 'cyan-prod' || github.event.forkee.owner.login }}';
-            const forkRepo = '${{ github.event.inputs.target_repo || github.event.forkee.name }}';
-
-            console.log(`🧹 Cleaning up rulesets for ${forkOwner}/${forkRepo} (nuking disabled)...`);
-
-            try {
-              // Delete all existing rulesets
-              const rulesets = await github.rest.repos.getRepoRulesets({
-                owner: forkOwner,
-                repo: forkRepo
-              });
-
-              for (const ruleset of rulesets.data) {
-                await github.rest.repos.deleteRepoRuleset({
-                  owner: forkOwner,
-                  repo: forkRepo,
-                  ruleset_id: ruleset.id
-                });
-                console.log(`✓ Deleted ruleset: ${ruleset.name}`);
-              }
-
-              console.log(`✓ Cleaned up rulesets for ${forkOwner}/${forkRepo}`);
-
-            } catch (error) {
-              console.log('Ruleset cleanup failed:', error.message);
-              throw error;
-            }
 
       - name: Get repository details
-        if: ${{ github.event.inputs.nuke_repo == 'false' || github.event_name == 'fork' }}
         id: repo-info
         uses: actions/github-script@v8
         with:
@@ -245,7 +211,6 @@ jobs:
             core.setOutput('url', repoUrl);
 
       - name: Validate repository naming convention
-        if: ${{ github.event.inputs.nuke_repo == 'false' || github.event_name == 'fork' }}
         id: validate-name
         uses: actions/github-script@v8
         with:
@@ -290,7 +255,6 @@ jobs:
             }
 
       - name: Clean up governance files on main branch
-        if: ${{ github.event.inputs.nuke_repo == 'false' || github.event_name == 'fork' }}
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GH_PAT_CLASSIC }}
@@ -433,7 +397,6 @@ jobs:
             }
 
       - name: Apply repository rulesets
-        if: ${{ github.event.inputs.nuke_repo == 'false' || github.event_name == 'fork' }}
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GH_PAT_CLASSIC }}
@@ -482,7 +445,6 @@ jobs:
             return results;
 
       - name: Create dev branch from cleaned main and set as default
-        if: ${{ github.event.inputs.nuke_repo == 'false' || github.event_name == 'fork' }}
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GH_PAT_CLASSIC }}
@@ -537,7 +499,6 @@ jobs:
             }
 
       - name: Create environments
-        if: ${{ github.event.inputs.nuke_repo == 'false' || github.event_name == 'fork' }}
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GH_PAT_CLASSIC }}
@@ -567,7 +528,6 @@ jobs:
             }
 
       - name: Enable security features
-        if: ${{ github.event.inputs.nuke_repo == 'false' || github.event_name == 'fork' }}
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GH_PAT_CLASSIC }}
@@ -619,7 +579,6 @@ jobs:
             }
 
       - name: Check required files updated
-        if: ${{ github.event.inputs.nuke_repo == 'false' || github.event_name == 'fork' }}
         id: check-files
         uses: actions/github-script@v8
         continue-on-error: true
@@ -666,7 +625,6 @@ jobs:
             return warnings;
 
       - name: Create setup notification issue
-        if: ${{ github.event.inputs.nuke_repo == 'false' || github.event_name == 'fork' }}
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GH_PAT_CLASSIC }}
