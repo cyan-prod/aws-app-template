@@ -143,7 +143,6 @@ jobs:
 
       - name: Clean up governance files on main branch
         uses: actions/github-script@v8
-        continue-on-error: true
         with:
           github-token: ${{ secrets.GH_PAT }}
           script: |
@@ -227,7 +226,6 @@ jobs:
 
       - name: Create dev branch from cleaned main and set as default
         uses: actions/github-script@v8
-        continue-on-error: true
         with:
           github-token: ${{ secrets.GH_PAT }}
           script: |
@@ -277,11 +275,11 @@ jobs:
               console.log('✓ Set dev as default branch');
             } catch (error) {
               console.error('Failed to set default branch:', error.message);
+              throw new Error(`Failed to set dev as default branch: ${error.message}`);
             }
 
       - name: Create environments
         uses: actions/github-script@v8
-        continue-on-error: true
         with:
           github-token: ${{ secrets.GH_PAT }}
           script: |
@@ -290,6 +288,7 @@ jobs:
 
             const environments = ['dev', 'staging', 'prod'];
 
+            const failedEnvs = [];
             for (const env of environments) {
               try {
                 await github.rest.repos.createOrUpdateEnvironment({
@@ -300,17 +299,23 @@ jobs:
                 console.log(`✓ Created environment: ${env}`);
               } catch (error) {
                 console.error(`Failed to create ${env}:`, error.message);
+                failedEnvs.push(env);
               }
+            }
+
+            if (failedEnvs.length > 0) {
+              throw new Error(`Failed to create environments: ${failedEnvs.join(', ')}`);
             }
 
       - name: Enable security features
         uses: actions/github-script@v8
-        continue-on-error: true
         with:
           github-token: ${{ secrets.GH_PAT }}
           script: |
             const forkOwner = '${{ steps.repo-info.outputs.owner }}';
             const forkRepo = '${{ steps.repo-info.outputs.repo }}';
+
+            const failedFeatures = [];
 
             // Enable vulnerability alerts
             try {
@@ -321,6 +326,7 @@ jobs:
               console.log('✓ Enabled vulnerability alerts');
             } catch (error) {
               console.error('Failed to enable vulnerability alerts:', error.message);
+              failedFeatures.push('vulnerability alerts');
             }
 
             // Enable automated security fixes (Dependabot)
@@ -332,6 +338,7 @@ jobs:
               console.log('✓ Enabled Dependabot security updates');
             } catch (error) {
               console.error('Failed to enable Dependabot:', error.message);
+              failedFeatures.push('Dependabot security updates');
             }
 
             // Enable auto-delete head branches
@@ -344,6 +351,11 @@ jobs:
               console.log('✓ Enabled auto-delete branch after merge');
             } catch (error) {
               console.error('Failed to enable auto-delete:', error.message);
+              failedFeatures.push('auto-delete branch');
+            }
+
+            if (failedFeatures.length > 0) {
+              throw new Error(`Failed to enable security features: ${failedFeatures.join(', ')}`);
             }
 
       - name: Check required files updated
@@ -536,7 +548,6 @@ jobs:
 
       - name: Notify in template repo
         uses: actions/github-script@v8
-        continue-on-error: true
         with:
           script: |
             const forkFullName = '${{ steps.repo-info.outputs.full_name }}';
