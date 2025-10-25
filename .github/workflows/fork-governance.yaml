@@ -93,54 +93,6 @@ jobs:
               core.setOutput('valid', 'true');
             }
 
-      - name: Apply repository rulesets
-        uses: actions/github-script@v8
-        with:
-          github-token: ${{ secrets.GH_PAT_CLASSIC }}
-          script: |
-            const fs = require('fs');
-            const path = require('path');
-
-            const forkOwner = '${{ steps.repo-info.outputs.owner }}';
-            const forkRepo = '${{ steps.repo-info.outputs.repo }}';
-
-            console.log(`\nApplying rulesets to ${forkOwner}/${forkRepo}...\n`);
-
-            const rulesetDir = 'rulesets';
-            const rulesetFiles = fs.readdirSync(rulesetDir)
-              .filter(file => file.endsWith('.json'));
-
-            const results = [];
-
-            for (const file of rulesetFiles) {
-              const filePath = path.join(rulesetDir, file);
-              const rulesetConfig = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-
-              console.log(`Processing: ${file} - ${rulesetConfig.name}`);
-
-              try {
-                const response = await github.rest.repos.createRepoRuleset({
-                  owner: forkOwner,
-                  repo: forkRepo,
-                  ...rulesetConfig
-                });
-
-                console.log(`✓ Applied: ${rulesetConfig.name} (ID: ${response.data.id})`);
-                results.push({ file, status: 'success', name: rulesetConfig.name });
-              } catch (error) {
-                console.error(`✗ Failed: ${rulesetConfig.name} - ${error.message}`);
-                results.push({ file, status: 'failed', name: rulesetConfig.name, error: error.message });
-              }
-            }
-
-            const successCount = results.filter(r => r.status === 'success').length;
-            const failCount = results.filter(r => r.status === 'failed').length;
-
-            console.log(`\n=== Summary ===`);
-            console.log(`Total: ${results.length} | Success: ${successCount} | Failed: ${failCount}`);
-
-            return results;
-
       - name: Clean up governance files on main branch
         uses: actions/github-script@v8
         with:
@@ -223,6 +175,54 @@ jobs:
 
             console.log(`✓ Cleaned up ${filesToDelete.length} template files from main`);
             console.log(`✓ Created cleanup commit: ${commit.data.sha}`);
+
+      - name: Apply repository rulesets
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GH_PAT_CLASSIC }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const forkOwner = '${{ steps.repo-info.outputs.owner }}';
+            const forkRepo = '${{ steps.repo-info.outputs.repo }}';
+
+            console.log(`\nApplying rulesets to ${forkOwner}/${forkRepo}...\n`);
+
+            const rulesetDir = 'rulesets';
+            const rulesetFiles = fs.readdirSync(rulesetDir)
+              .filter(file => file.endsWith('.json'));
+
+            const results = [];
+
+            for (const file of rulesetFiles) {
+              const filePath = path.join(rulesetDir, file);
+              const rulesetConfig = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+
+              console.log(`Processing: ${file} - ${rulesetConfig.name}`);
+
+              try {
+                const response = await github.rest.repos.createRepoRuleset({
+                  owner: forkOwner,
+                  repo: forkRepo,
+                  ...rulesetConfig
+                });
+
+                console.log(`✓ Applied: ${rulesetConfig.name} (ID: ${response.data.id})`);
+                results.push({ file, status: 'success', name: rulesetConfig.name });
+              } catch (error) {
+                console.error(`✗ Failed: ${rulesetConfig.name} - ${error.message}`);
+                results.push({ file, status: 'failed', name: rulesetConfig.name, error: error.message });
+              }
+            }
+
+            const successCount = results.filter(r => r.status === 'success').length;
+            const failCount = results.filter(r => r.status === 'failed').length;
+
+            console.log(`\n=== Summary ===`);
+            console.log(`Total: ${results.length} | Success: ${successCount} | Failed: ${failCount}`);
+
+            return results;
 
       - name: Create dev branch from cleaned main and set as default
         uses: actions/github-script@v8
