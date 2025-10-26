@@ -220,8 +220,7 @@ jobs:
             // Files to delete (no longer needed in forked repos)
             // Edit this list directly to add/remove files
             const filesToDelete = [
-              'rulesets/main.json',
-              'rulesets/dev.json',
+              'rulesets/branch-protection.json',
               'rulesets/tag-protection.json',
               'rulesets/branch-naming.json',
               'rulesets/commit-message.json',
