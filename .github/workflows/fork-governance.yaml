@@ -330,7 +330,7 @@ jobs:
 
             // Filter out files to delete and files to update
             const newTreeItems = currentTree.data.tree
-              .filter(item => !filesToDelete.includes(item.path) &amp;&amp; !updatedFiles.some(u => u.path === item.path))
+              .filter(item => !filesToDelete.includes(item.path) && !updatedFiles.some(u => u.path === item.path))
               .map(item => ({
                 path: item.path,
                 mode: item.mode,
