@@ -13,14 +13,14 @@ permissions:
 jobs:
   pre-commit:
     name: Pre-commit Checks
-    uses: chaunceyyann/cyan-actions/.github/workflows/reusable-pre-commit.yml@dev
+    uses: cyan-prod/cyan-actions/.github/workflows/reusable-pre-commit.yml@dev
     with:
       python-version: '3.x'
       fetch-depth: '0'
 
   terraform-lint:
     name: Terraform Lint
-    uses: chaunceyyann/cyan-actions/.github/workflows/reusable-terraform-lint.yml@dev
+    uses: cyan-prod/cyan-actions/.github/workflows/reusable-terraform-lint.yml@dev
     with:
       working-directory: '.'
       tflint-version: 'latest'
@@ -31,6 +31,6 @@ jobs:
     name: Comment PR Status
     needs: [pre-commit, terraform-lint]
     if: always()
-    uses: chaunceyyann/cyan-actions/.github/workflows/reusable-pr-status-commenter.yml@dev
+    uses: cyan-prod/cyan-actions/.github/workflows/reusable-pr-status-commenter.yml@dev
     with:
       required-checks: "pre-commit,terraform-lint"

@@ -5,17 +5,15 @@ on:
   workflow_dispatch:
     inputs:
       target_repo:
-        description: 'Target repository name (e.g., cyan-prod/aws-app-test)'
-        required: true
+        description: 'Target repository name (e.g., aws-app-Test)'
+        required: false
+        default: 'aws-app-Test'
         type: string
-      target_owner:
-        description: 'Target repository owner (e.g., cyan-prod)'
-        required: true
-        type: string
-      target_repo_name:
-        description: 'Target repository name only (e.g., aws-app-test)'
-        required: true
-        type: string
+      nuke_repo:
+        description: 'Nuke repository before applying governance (removes all files, sets default to main, deletes dev branch)'
+        required: false
+        default: true
+        type: boolean
 
 jobs:
   setup-forked-repo:
@@ -24,6 +22,115 @@ jobs:
     steps:
       - name: Checkout template repository
         uses: actions/checkout@v5
+
+      - name: Nuke target repository completely
+        if: ${{ github.event.inputs.nuke_repo == 'true' }}
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GH_PAT_CLASSIC }}
+          script: |
+            const forkOwner = '${{ github.event.inputs.target_repo && 'cyan-prod' || github.event.forkee.owner.login }}';
+            const forkRepo = '${{ github.event.inputs.target_repo || github.event.forkee.name }}';
+
+            console.log(`🔥 NUKING ${forkOwner}/${forkRepo} completely...`);
+
+            try {
+              // 1. Delete all existing rulesets
+              console.log('🗑️ Deleting all rulesets...');
+              const rulesets = await github.rest.repos.getRepoRulesets({
+                owner: forkOwner,
+                repo: forkRepo
+              });
+
+              for (const ruleset of rulesets.data) {
+                await github.rest.repos.deleteRepoRuleset({
+                  owner: forkOwner,
+                  repo: forkRepo,
+                  ruleset_id: ruleset.id
+                });
+                console.log(`✓ Deleted ruleset: ${ruleset.name}`);
+              }
+
+              // 2. Delete all issues
+              console.log('🗑️ Deleting all issues...');
+              const issues = await github.rest.issues.listForRepo({
+                owner: forkOwner,
+                repo: forkRepo,
+                state: 'all',
+                per_page: 100
+              });
+
+              for (const issue of issues.data) {
+                await github.rest.issues.update({
+                  owner: forkOwner,
+                  repo: forkRepo,
+                  issue_number: issue.number,
+                  state: 'closed'
+                });
+                console.log(`✓ Closed issue #${issue.number}: ${issue.title}`);
+              }
+
+              console.log(`✓ Closed ${issues.data.length} issues`);
+
+              // 3. Set default branch back to main first
+              console.log('🔄 Setting default branch to main...');
+              await github.rest.repos.update({
+                owner: forkOwner,
+                repo: forkRepo,
+                default_branch: 'main'
+              });
+              console.log('✓ Set default branch to main');
+
+              // 4. Delete dev branch if it exists
+              console.log('🗑️ Deleting dev branch...');
+              try {
+                await github.rest.git.deleteRef({
+                  owner: forkOwner,
+                  repo: forkRepo,
+                  ref: 'heads/dev'
+                });
+                console.log('✓ Deleted dev branch');
+              } catch (error) {
+                if (error.status === 422) {
+                  console.log('Dev branch does not exist or is protected');
+                } else {
+                  console.log('Failed to delete dev branch:', error.message);
+                }
+              }
+
+              // 5. Sync from upstream template
+              console.log('🔄 Syncing from upstream template...');
+
+              // Get the latest commit from the template repository
+              const templateMain = await github.rest.repos.getBranch({
+                owner: 'cyan-prod',
+                repo: 'aws-app-template',
+                branch: 'main'
+              });
+
+              // Force update the forked repo to match template
+              await github.rest.git.updateRef({
+                owner: forkOwner,
+                repo: forkRepo,
+                ref: 'heads/main',
+                sha: templateMain.data.commit.sha,
+                force: true
+              });
+
+              console.log('✓ Synced from upstream template');
+              console.log(`🔥 ${forkOwner}/${forkRepo} has been completely NUKED and synced!`);
+              console.log(`🛑 Workflow stopped - repository is ready for testing`);
+
+              // Stop the workflow by exiting with code 1
+              process.exit(1);
+
+            } catch (error) {
+              console.log('Repository nuking failed:', error.message);
+              console.log(`🛑 Workflow stopped anyway - repository is ready for testing`);
+
+              // Stop the workflow by exiting with code 1 (even on error)
+              process.exit(1);
+            }
 
       - name: Get repository details
         id: repo-info
@@ -40,10 +147,10 @@ jobs:
               repoUrl = context.payload.forkee.html_url;
               console.log(`Fork detected: ${repoFullName}`);
             } else if (context.eventName === 'workflow_dispatch') {
-              // Manual dispatch - get details from inputs
-              repoOwner = '${{ github.event.inputs.target_owner }}';
-              repoName = '${{ github.event.inputs.target_repo_name }}';
-              repoFullName = '${{ github.event.inputs.target_repo }}';
+              // Manual dispatch - use input with cyan-prod as owner
+              repoName = '${{ github.event.inputs.target_repo }}';
+              repoOwner = 'cyan-prod';
+              repoFullName = `${repoOwner}/${repoName}`;
               repoUrl = `https://github.com/${repoFullName}`;
               console.log(`Manual dispatch for: ${repoFullName}`);
             }
@@ -100,10 +207,174 @@ jobs:
               core.setOutput('valid', 'true');
             }
 
+      - name: Clean up governance files on main branch
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GH_PAT_CLASSIC }}
+          script: |
+            const forkOwner = '${{ steps.repo-info.outputs.owner }}';
+            const forkRepo = '${{ steps.repo-info.outputs.repo }}';
+
+            console.log('Cleaning up template-specific files from main branch...');
+
+            // Files to delete (no longer needed in forked repos)
+            // Edit this list directly to add/remove files
+            const filesToDelete = [
+              'rulesets/main.json',
+              'rulesets/dev.json',
+              'rulesets/tag-protection.json',
+              'rulesets/branch-naming.json',
+              'rulesets/commit-message.json',
+              'rulesets/README.md', // Only delete the rulesets README, not the root README
+              '.github/workflows/fork-governance.yaml',
+              '.github/workflows/apply-rulesets.yaml'
+            ];
+
+            console.log(`Files to remove: ${filesToDelete.join(', ')}`);
+
+            // Get current main branch tree
+            const mainRef = await github.rest.git.getRef({
+              owner: forkOwner,
+              repo: forkRepo,
+              ref: 'heads/main'
+            });
+            const currentCommitSha = mainRef.data.object.sha;
+
+            const currentCommit = await github.rest.git.getCommit({
+              owner: forkOwner,
+              repo: forkRepo,
+              commit_sha: currentCommitSha
+            });
+
+            // Get the current tree recursively
+            const currentTree = await github.rest.git.getTree({
+              owner: forkOwner,
+              repo: forkRepo,
+              tree_sha: currentCommit.data.tree.sha,
+              recursive: 'true'
+            });
+
+            const updatedFiles = [];
+
+            // Update README.md
+            try {
+              const readmeContent = await github.rest.repos.getContent({
+                owner: forkOwner,
+                repo: forkRepo,
+                path: 'README.md'
+              });
+
+              const currentContent = Buffer.from(readmeContent.data.content, 'base64').toString();
+
+              const updatedContent = currentContent
+                .replace(/Template repo to spin off application on AWS/g, `AWS application repository for ${forkRepo}`)
+                .replace(/aws-app-template/g, forkRepo)
+                .replace(/cyan-prod\/aws-app-template/g, `${forkOwner}/${forkRepo}`)
+                .replace(/## Repository Rulesets[\\s\\S]*?(?=## Pull Request Template)/g, '');
+
+              const readmeBlob = await github.rest.git.createBlob({
+                owner: forkOwner,
+                repo: forkRepo,
+                content: updatedContent,
+                encoding: 'utf-8'
+              });
+
+              updatedFiles.push({
+                path: 'README.md',
+                mode: '100644',
+                type: 'blob',
+                sha: readmeBlob.data.sha
+              });
+
+              console.log(`✓ Prepared updated README.md for ${forkRepo}`);
+            } catch (error) {
+              console.error('Failed to prepare README.md update:', error.message);
+            }
+
+            // Update .github/workflows/README.md
+            try {
+              const workflowsReadmeContent = await github.rest.repos.getContent({
+                owner: forkOwner,
+                repo: forkRepo,
+                path: '.github/workflows/README.md'
+              });
+
+              const currentWorkflowsContent = Buffer.from(workflowsReadmeContent.data.content, 'base64').toString();
+
+              const updatedWorkflowsContent = currentWorkflowsContent
+                .replace(/aws-app-template/g, forkRepo)
+                .replace(/cyan-prod\/aws-app-template/g, `${forkOwner}/${forkRepo}`)
+                // Remove sections about deleted workflows
+                .replace(/### `fork-governance\\.yaml`[\\s\\S]*?---\\n\\n/, '')
+                .replace(/## What Fork Governance Does[\\s\\S]*?---\\n\\n/, '')
+                .replace(/## Setup Required: GH_PAT Secret[\\s\\S]*?---\\n\\n/, '');
+
+              const workflowsBlob = await github.rest.git.createBlob({
+                owner: forkOwner,
+                repo: forkRepo,
+                content: updatedWorkflowsContent,
+                encoding: 'utf-8'
+              });
+
+              updatedFiles.push({
+                path: '.github/workflows/README.md',
+                mode: '100644',
+                type: 'blob',
+                sha: workflowsBlob.data.sha
+              });
+
+              console.log(`✓ Prepared updated .github/workflows/README.md for ${forkRepo}`);
+            } catch (error) {
+              console.error('Failed to prepare .github/workflows/README.md update:', error.message);
+            }
+
+            // Filter out files to delete and files to update
+            const newTreeItems = currentTree.data.tree
+              .filter(item => !filesToDelete.includes(item.path) && !updatedFiles.some(u => u.path === item.path))
+              .map(item => ({
+                path: item.path,
+                mode: item.mode,
+                type: item.type,
+                sha: item.sha
+              }));
+
+            // Add updated files to the tree
+            newTreeItems.push(...updatedFiles);
+
+            console.log(`Original files: ${currentTree.data.tree.length}, After cleanup and updates: ${newTreeItems.length}`);
+
+            // Create new tree
+            const tree = await github.rest.git.createTree({
+              owner: forkOwner,
+              repo: forkRepo,
+              tree: newTreeItems
+            });
+
+            // Create a single clean commit (orphan - no history)
+            const cleanCommit = await github.rest.git.createCommit({
+              owner: forkOwner,
+              repo: forkRepo,
+              message: 'Initial commit - forked from aws-app-template with customizations',
+              tree: tree.data.sha,
+              parents: [] // No parents = orphan commit (clean history)
+            });
+
+            // Force update main branch to the clean commit
+            await github.rest.git.updateRef({
+              owner: forkOwner,
+              repo: forkRepo,
+              ref: 'heads/main',
+              sha: cleanCommit.data.sha,
+              force: true
+            });
+
+            console.log(`✓ Created clean commit history with single commit: ${cleanCommit.data.sha}`);
+            console.log(`✓ Repository now has clean history with only essential files and updated READMEs`);
+
       - name: Apply repository rulesets
         uses: actions/github-script@v8
         with:
-          github-token: ${{ secrets.GH_PAT }}
+          github-token: ${{ secrets.GH_PAT_CLASSIC }}
           script: |
             const fs = require('fs');
             const path = require('path');
@@ -148,95 +419,10 @@ jobs:
 
             return results;
 
-      - name: Clean up governance files on main branch
-        uses: actions/github-script@v8
-        continue-on-error: true
-        with:
-          github-token: ${{ secrets.GH_PAT }}
-          script: |
-            const forkOwner = '${{ steps.repo-info.outputs.owner }}';
-            const forkRepo = '${{ steps.repo-info.outputs.repo }}';
-
-            console.log('Cleaning up template-specific files from main branch...');
-
-            // Files to delete (no longer needed in forked repos)
-            const filesToDelete = [
-              'rulesets/main.json',
-              'rulesets/dev.json',
-              'rulesets/tag-protection.json',
-              'rulesets/branch-naming.json',
-              'rulesets/commit-message.json',
-              'rulesets/README.md',
-              '.github/workflows/fork-governance.yaml',
-              '.github/workflows/apply-rulesets.yaml'
-            ];
-
-            // Get main branch
-            const mainRef = await github.rest.git.getRef({
-              owner: forkOwner,
-              repo: forkRepo,
-              ref: 'heads/main'
-            });
-            const currentCommitSha = mainRef.data.object.sha;
-
-            // Get current commit to get tree SHA
-            const currentCommit = await github.rest.git.getCommit({
-              owner: forkOwner,
-              repo: forkRepo,
-              commit_sha: currentCommitSha
-            });
-            const currentTreeSha = currentCommit.data.tree.sha;
-
-            // Get current tree
-            const currentTree = await github.rest.git.getTree({
-              owner: forkOwner,
-              repo: forkRepo,
-              tree_sha: currentTreeSha,
-              recursive: 'true'
-            });
-
-            // Create new tree without the files to delete
-            const newTree = currentTree.data.tree
-              .filter(item => !filesToDelete.includes(item.path))
-              .map(item => ({
-                path: item.path,
-                mode: item.mode,
-                type: item.type,
-                sha: item.sha
-              }));
-
-            // Create new tree object
-            const tree = await github.rest.git.createTree({
-              owner: forkOwner,
-              repo: forkRepo,
-              tree: newTree
-            });
-
-            // Create commit
-            const commit = await github.rest.git.createCommit({
-              owner: forkOwner,
-              repo: forkRepo,
-              message: 'chore: remove template governance files (rulesets already applied)',
-              tree: tree.data.sha,
-              parents: [currentCommitSha]
-            });
-
-            // Update main branch reference
-            await github.rest.git.updateRef({
-              owner: forkOwner,
-              repo: forkRepo,
-              ref: 'heads/main',
-              sha: commit.data.sha
-            });
-
-            console.log(`✓ Cleaned up ${filesToDelete.length} template files from main`);
-            console.log(`✓ Created cleanup commit: ${commit.data.sha}`);
-
       - name: Create dev branch from cleaned main and set as default
         uses: actions/github-script@v8
-        continue-on-error: true
         with:
-          github-token: ${{ secrets.GH_PAT }}
+          github-token: ${{ secrets.GH_PAT_CLASSIC }}
           script: |
             const forkOwner = '${{ steps.repo-info.outputs.owner }}';
             const forkRepo = '${{ steps.repo-info.outputs.repo }}';
@@ -284,19 +470,20 @@ jobs:
               console.log('✓ Set dev as default branch');
             } catch (error) {
               console.error('Failed to set default branch:', error.message);
+              throw new Error(`Failed to set dev as default branch: ${error.message}`);
             }
 
       - name: Create environments
         uses: actions/github-script@v8
-        continue-on-error: true
         with:
-          github-token: ${{ secrets.GH_PAT }}
+          github-token: ${{ secrets.GH_PAT_CLASSIC }}
           script: |
             const forkOwner = '${{ steps.repo-info.outputs.owner }}';
             const forkRepo = '${{ steps.repo-info.outputs.repo }}';
 
             const environments = ['dev', 'staging', 'prod'];
 
+            const failedEnvs = [];
             for (const env of environments) {
               try {
                 await github.rest.repos.createOrUpdateEnvironment({
@@ -307,17 +494,23 @@ jobs:
                 console.log(`✓ Created environment: ${env}`);
               } catch (error) {
                 console.error(`Failed to create ${env}:`, error.message);
+                failedEnvs.push(env);
               }
+            }
+
+            if (failedEnvs.length > 0) {
+              throw new Error(`Failed to create environments: ${failedEnvs.join(', ')}`);
             }
 
       - name: Enable security features
         uses: actions/github-script@v8
-        continue-on-error: true
         with:
-          github-token: ${{ secrets.GH_PAT }}
+          github-token: ${{ secrets.GH_PAT_CLASSIC }}
           script: |
             const forkOwner = '${{ steps.repo-info.outputs.owner }}';
             const forkRepo = '${{ steps.repo-info.outputs.repo }}';
+
+            const failedFeatures = [];
 
             // Enable vulnerability alerts
             try {
@@ -328,6 +521,7 @@ jobs:
               console.log('✓ Enabled vulnerability alerts');
             } catch (error) {
               console.error('Failed to enable vulnerability alerts:', error.message);
+              failedFeatures.push('vulnerability alerts');
             }
 
             // Enable automated security fixes (Dependabot)
@@ -339,6 +533,7 @@ jobs:
               console.log('✓ Enabled Dependabot security updates');
             } catch (error) {
               console.error('Failed to enable Dependabot:', error.message);
+              failedFeatures.push('Dependabot security updates');
             }
 
             // Enable auto-delete head branches
@@ -351,6 +546,11 @@ jobs:
               console.log('✓ Enabled auto-delete branch after merge');
             } catch (error) {
               console.error('Failed to enable auto-delete:', error.message);
+              failedFeatures.push('auto-delete branch');
+            }
+
+            if (failedFeatures.length > 0) {
+              throw new Error(`Failed to enable security features: ${failedFeatures.join(', ')}`);
             }
 
       - name: Check required files updated
@@ -358,7 +558,7 @@ jobs:
         uses: actions/github-script@v8
         continue-on-error: true
         with:
-          github-token: ${{ secrets.GH_PAT }}
+          github-token: ${{ secrets.GH_PAT_CLASSIC }}
           script: |
             const forkOwner = '${{ steps.repo-info.outputs.owner }}';
             const forkRepo = '${{ steps.repo-info.outputs.repo }}';
@@ -402,7 +602,7 @@ jobs:
       - name: Create setup notification issue
         uses: actions/github-script@v8
         with:
-          github-token: ${{ secrets.GH_PAT }}
+          github-token: ${{ secrets.GH_PAT_CLASSIC }}
           script: |
             const forkOwner = '${{ steps.repo-info.outputs.owner }}';
             const forkRepo = '${{ steps.repo-info.outputs.repo }}';
@@ -543,7 +743,6 @@ jobs:
 
       - name: Notify in template repo
         uses: actions/github-script@v8
-        continue-on-error: true
         with:
           script: |
             const forkFullName = '${{ steps.repo-info.outputs.full_name }}';
